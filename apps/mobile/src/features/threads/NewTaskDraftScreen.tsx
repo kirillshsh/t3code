@@ -975,7 +975,7 @@ export function NewTaskDraftScreen(props: {
 
   const composerDock = (
     <View className="bg-sheet px-4 pt-1" style={{ paddingBottom: controlsBottomPadding }}>
-      <View className="pb-1">{workspaceControls}</View>
+      <View className="pb-3">{workspaceControls}</View>
 
       <ComposerSurface
         animateLayout={false}
