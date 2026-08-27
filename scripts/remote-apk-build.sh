@@ -19,6 +19,8 @@ MOBILE="$REPO/apps/mobile"
 STATE="$HOME/.t3-apk-state"
 LOGS="$HOME/logs"
 mkdir -p "$LOGS"
+# По этому pid клиент отличает «сборка ещё думает» от «процесс умер молча».
+echo $$ > "$LOGS/apk.pid"
 
 step() { echo "[$(date +%H:%M:%S)] $*"; }
 fail() { echo "BUILD FAILED: $*"; exit 1; }
@@ -77,14 +79,26 @@ for kv in "org.gradle.workers.max=12" "org.gradle.caching=true" "org.gradle.para
   grep -q "^$key=" "$P" || echo "$kv" >> "$P"
 done
 
+# Телефон не ставит APK со старым versionCode, а expo prebuild всегда пишет туда 1.
+# Минуты с эпохи монотонно растут и влезают в int32, поэтому каждая сборка новее прошлой.
+sed -i "s/^\( *\)versionCode .*/\1versionCode $(( $(date +%s) / 60 ))/" android/app/build.gradle
+
 cd android
+# lintVital на release съедает минуты и ничего не даёт сборке, которую просто ставят на телефон.
+GRADLE_ARGS="--parallel --build-cache -x lintVitalAnalyzeRelease -x lintVitalReportRelease"
 step "gradle assembleRelease"
 START=$(date +%s)
-./gradlew assembleRelease --parallel --build-cache > "$LOGS/build.log" 2>&1
+./gradlew assembleRelease $GRADLE_ARGS > "$LOGS/build.log" 2>&1
 RC=$?
+if [ $RC -ne 0 ] && grep -qiE "cannot be found|not found in (root )?project" "$LOGS/build.log"; then
+  step "lint-тасков нет в этой версии AGP, собираю без исключений"
+  GRADLE_ARGS="--parallel --build-cache"
+  ./gradlew assembleRelease $GRADLE_ARGS > "$LOGS/build.log" 2>&1
+  RC=$?
+fi
 if [ $RC -ne 0 ] && grep -qi "configuration cache" "$LOGS/build.log"; then
   step "configuration cache подвёл, повтор без него"
-  ./gradlew assembleRelease --parallel --build-cache --no-configuration-cache > "$LOGS/build.log" 2>&1
+  ./gradlew assembleRelease $GRADLE_ARGS --no-configuration-cache > "$LOGS/build.log" 2>&1
   RC=$?
 fi
 if [ $RC -ne 0 ]; then
@@ -101,4 +115,5 @@ printf 'LOCK_OLD=%s\nCONF_OLD=%s\n' "$LOCK_NOW" "$CONF_NOW" > "$STATE"
 
 step "готово за $(( ($(date +%s) - START) / 60 ))м $(( ($(date +%s) - START) % 60 ))с, $(du -h "$APK" | cut -f1)"
 echo "APK_PATH=$APK"
+echo "APK_SHA=$(sha1sum "$APK" | cut -d' ' -f1)"
 echo "BUILD SUCCESSFUL"
