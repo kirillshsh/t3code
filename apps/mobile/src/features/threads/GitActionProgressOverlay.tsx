@@ -1,4 +1,3 @@
-import * as Haptics from "expo-haptics";
 import { isLiquidGlassSupported, LiquidGlassView } from "@callstack/liquid-glass";
 import { SymbolView } from "../../components/AppSymbol";
 import { useCallback, useEffect, useRef } from "react";
@@ -12,6 +11,7 @@ import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import { useThemeColor } from "../../lib/useThemeColor";
 import type { GitActionProgress } from "../../state/use-vcs-action-state";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
+import { hapticError, hapticSuccess } from "../../lib/haptics";
 
 const OVERLAY_LAYOUT_TRANSITION = LinearTransition.duration(220);
 const OVERLAY_TOP_GAP = 8;
@@ -30,9 +30,9 @@ export function GitActionProgressOverlay(props: {
     prevPhaseRef.current = progress.phase;
 
     if (prev === "running" && progress.phase === "success") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void hapticSuccess();
     } else if (prev === "running" && progress.phase === "error") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      void hapticError();
     }
   }, [progress.phase]);
 

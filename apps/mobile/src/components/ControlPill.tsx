@@ -1,5 +1,4 @@
 import { MenuView } from "@react-native-menu/menu";
-import * as Haptics from "expo-haptics";
 import {
   cloneElement,
   isValidElement,
@@ -16,6 +15,7 @@ import { cn } from "../lib/cn";
 import { AndroidAnchoredMenu } from "./AndroidAnchoredMenu";
 import { SymbolView } from "./AppSymbol";
 import { AppText as Text } from "./AppText";
+import { hapticLongPress } from "../lib/haptics";
 
 export function ControlPill(props: {
   readonly icon?: ComponentProps<typeof SymbolView>["name"];
@@ -138,7 +138,7 @@ export function ControlPillMenu(
           {(open) =>
             cloneElement(child, {
               onLongPress: () => {
-                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                void hapticLongPress();
                 open();
               },
             })

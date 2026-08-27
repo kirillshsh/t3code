@@ -1,7 +1,6 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { canSettle, canSnooze } from "@t3tools/client-runtime/state/thread-settled";
 import * as Cause from "effect/Cause";
-import * as Haptics from "expo-haptics";
 import { useCallback, useRef } from "react";
 import { Alert } from "react-native";
 
@@ -17,6 +16,7 @@ import { appAtomRegistry } from "../../state/atom-registry";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { environmentThreadShells, threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { hapticTap } from "../../lib/haptics";
 
 /** Version skew: never send settle/unsettle to a server that predates them
     (capability defaults false on decode for older servers). */
@@ -76,7 +76,7 @@ function actionFailureMessage(action: ThreadListAction, cause: Cause.Cause<unkno
 }
 
 function selectionHaptic(): void {
-  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  void hapticTap();
 }
 
 function actionFailureTitle(action: ThreadListAction): string {

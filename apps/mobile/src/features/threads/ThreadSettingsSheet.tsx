@@ -17,7 +17,6 @@ import {
   createNativeStackNavigator,
   type NativeStackNavigationProp,
 } from "@react-navigation/native-stack";
-import * as Haptics from "expo-haptics";
 import {
   createContext,
   use,
@@ -59,6 +58,7 @@ import {
   pendingModelAfterPress,
   providerSectionIsCollapsed,
 } from "./thread-settings-sheet-state";
+import { hapticSelection } from "../../lib/haptics";
 
 /**
  * Everyday harnesses start expanded; every other provider (OpenRouter catalogs
@@ -404,7 +404,7 @@ function ThreadSettingsSessionProvider(
   );
   const commitPendingModel = useCallback(() => {
     if (pendingModel) {
-      void Haptics.selectionAsync();
+      void hapticSelection();
       props.onSelectModel(pendingModel);
     }
   }, [pendingModel, props.onSelectModel]);
@@ -439,7 +439,7 @@ function ThreadSettingsSessionProvider(
 
   const pressModel = useCallback(
     (option: ModelOption) => {
-      void Haptics.selectionAsync();
+      void hapticSelection();
       setPendingModel((current) =>
         pendingModelAfterPress({
           current,
@@ -867,7 +867,7 @@ function ThreadSettingsChoiceContent(props: {
             description: choice.description,
             selected: choice.mode === session.runtimeMode,
             onPress: () => {
-              void Haptics.selectionAsync();
+              void hapticSelection();
               session.onUpdateRuntimeMode(choice.mode);
               props.onSelected();
             },
@@ -881,7 +881,7 @@ function ThreadSettingsChoiceContent(props: {
               description: undefined,
               selected: choice.id === getProviderOptionCurrentValue(activeDescriptor),
               onPress: () => {
-                void Haptics.selectionAsync();
+                void hapticSelection();
                 session.applyOptionChange(activeDescriptor.id, choice.id);
                 props.onSelected();
               },

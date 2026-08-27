@@ -16,7 +16,6 @@ import type {
   ThreadId,
   UserInputQuestion,
 } from "@t3tools/contracts";
-import * as Haptics from "expo-haptics";
 import {
   memo,
   useCallback,
@@ -80,6 +79,7 @@ import {
 import { ThreadFeed } from "./ThreadFeed";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
+import { hapticSelection, hapticTap } from "../../lib/haptics";
 
 export interface ThreadDetailScreenProps {
   readonly selectedThread: OrchestrationThreadShell;
@@ -139,9 +139,7 @@ export interface ThreadDetailScreenProps {
   readonly showContent?: boolean;
 }
 
-function latestStreamingAssistantMessage(
-  feed: ReadonlyArray<ThreadFeedEntry>,
-): { readonly id: string; readonly textLength: number } | null {
+function latestStreamingAssistantMessageId(feed: ReadonlyArray<ThreadFeedEntry>): string | null {
   for (let index = feed.length - 1; index >= 0; index -= 1) {
     const entry = feed[index];
     if (entry?.type !== "message") {
@@ -150,21 +148,16 @@ function latestStreamingAssistantMessage(
     if (entry.message.role !== "assistant" || !entry.message.streaming) {
       continue;
     }
-    return {
-      id: entry.message.id,
-      textLength: entry.message.text.length,
-    };
+    return entry.message.id;
   }
 
   return null;
 }
 
+/** One soft tick when the agent starts speaking. Ticking per chunk buzzes for
+ * the whole response, which reads as a malfunction rather than feedback. */
 function useStreamingHaptics(threadId: ThreadId, feed: ReadonlyArray<ThreadFeedEntry>) {
-  const lastStreamingAssistantRef = useRef<{
-    readonly id: string;
-    readonly textLength: number;
-  } | null>(null);
-  const lastStreamHapticAtRef = useRef(0);
+  const lastStreamingAssistantRef = useRef<string | null>(null);
   const hydratedRef = useRef(false);
   const previousThreadIdRef = useRef(threadId);
 
@@ -174,38 +167,27 @@ function useStreamingHaptics(threadId: ThreadId, feed: ReadonlyArray<ThreadFeedE
       hydratedRef.current = false;
     }
 
-    const latestStreamingMessage = latestStreamingAssistantMessage(feed);
+    const latestStreamingMessageId = latestStreamingAssistantMessageId(feed);
 
     if (!hydratedRef.current) {
       hydratedRef.current = true;
-      lastStreamingAssistantRef.current = latestStreamingMessage;
+      lastStreamingAssistantRef.current = latestStreamingMessageId;
       return;
     }
 
-    if (!latestStreamingMessage) {
+    if (!latestStreamingMessageId) {
       lastStreamingAssistantRef.current = null;
       return;
     }
 
-    const previousStreamingMessage = lastStreamingAssistantRef.current;
-    lastStreamingAssistantRef.current = latestStreamingMessage;
+    const previousStreamingMessageId = lastStreamingAssistantRef.current;
+    lastStreamingAssistantRef.current = latestStreamingMessageId;
 
-    const isNewStream = previousStreamingMessage?.id !== latestStreamingMessage.id;
-    const textGrew =
-      previousStreamingMessage?.id === latestStreamingMessage.id &&
-      latestStreamingMessage.textLength > previousStreamingMessage.textLength;
-
-    if (!isNewStream && !textGrew) {
+    if (previousStreamingMessageId === latestStreamingMessageId) {
       return;
     }
 
-    const now = Date.now();
-    if (!isNewStream && now - lastStreamHapticAtRef.current < 320) {
-      return;
-    }
-
-    lastStreamHapticAtRef.current = now;
-    void Haptics.selectionAsync();
+    void hapticSelection();
   }, [threadId, feed]);
 }
 
@@ -556,7 +538,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   }, []);
 
   const handleScrollToEnd = useCallback(() => {
-    void Haptics.selectionAsync();
+    void hapticTap();
     void scrollMessageToEnd({ animated: true, closeKeyboard: false }).catch(() => {
       freeze.set(false);
     });

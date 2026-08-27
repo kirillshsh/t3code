@@ -1,7 +1,6 @@
 import { SymbolView } from "../../components/AppSymbol";
 import { ControlPillMenu } from "../../components/ControlPill";
 import type { MenuAction } from "@react-native-menu/menu";
-import * as Haptics from "expo-haptics";
 import {
   createContext,
   use,
@@ -33,6 +32,7 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { AppText as Text } from "../../components/AppText";
+import { hapticLongPress } from "../../lib/haptics";
 
 // Wide enough for the longest action label ("Unarchive").
 const ACTION_ITEM_WIDTH = 58;
@@ -275,7 +275,7 @@ export function ThreadSwipeable(props: {
   }, [resetKey]);
   const handleFullSwipeArmedChange = useCallback((armed: boolean) => {
     if (armed && !fullSwipeArmedRef.current) {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      void hapticLongPress();
     }
     fullSwipeArmedRef.current = armed;
   }, []);

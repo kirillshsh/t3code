@@ -1,4 +1,3 @@
-import * as Haptics from "expo-haptics";
 import { SymbolView } from "../../../../components/AppSymbol";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { View, type AccessibilityActionEvent } from "react-native";
@@ -13,6 +12,7 @@ import type { ComponentProps } from "react";
 
 import { AppText as Text } from "../../../../components/AppText";
 import { useThemeColor } from "../../../../lib/useThemeColor";
+import { hapticSelection } from "../../../../lib/haptics";
 
 type SymbolName = ComponentProps<typeof SymbolView>["name"];
 
@@ -61,7 +61,7 @@ export function FontSizeSliderRow(props: {
     if (next === latest.current.value) {
       return;
     }
-    Haptics.selectionAsync().catch(() => undefined);
+    void hapticSelection().catch(() => undefined);
     latest.current.onChange(next);
   }, []);
 

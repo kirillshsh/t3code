@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 import * as Clipboard from "expo-clipboard";
-import * as Haptics from "expo-haptics";
+
+import { hapticSelection, hapticTap } from "./haptics";
 
 export class CopyTextClipboardWriteError extends Schema.TaggedErrorClass<CopyTextClipboardWriteError>()(
   "CopyTextClipboardWriteError",
@@ -53,9 +54,9 @@ export function copyTextWithHaptic(
   void (async () => {
     try {
       if (feedback === "selection") {
-        await Haptics.selectionAsync();
+        await hapticSelection();
       } else {
-        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        await hapticTap();
       }
     } catch (cause) {
       console.error(

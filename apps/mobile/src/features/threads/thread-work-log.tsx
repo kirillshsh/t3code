@@ -1,4 +1,3 @@
-import * as Haptics from "expo-haptics";
 import { type AppSymbolName, SymbolView } from "../../components/AppSymbol";
 import { LayoutAnimation, Pressable, ScrollView, View } from "react-native";
 
@@ -9,6 +8,7 @@ import type { ThreadFeedActivity } from "../../lib/threadActivity";
 import { MOBILE_TYPOGRAPHY } from "../../lib/typography";
 import { useThemeColor } from "../../lib/useThemeColor";
 import Animated, { FadeIn } from "react-native-reanimated";
+import { hapticSelection } from "../../lib/haptics";
 
 const WORK_LOG_LAYOUT_ANIMATION = {
   duration: 180,
@@ -25,7 +25,7 @@ const WORK_LOG_LAYOUT_ANIMATION = {
 
 function triggerDisclosureFeedback() {
   LayoutAnimation.configureNext(WORK_LOG_LAYOUT_ANIMATION);
-  void Haptics.selectionAsync();
+  void hapticSelection();
 }
 
 function stripShellWrapper(value: string): string {
@@ -302,7 +302,7 @@ export function ThreadWorkGroupToggle(props: {
         accessibilityLabel={props.expanded ? expandedLabel : collapsedLabel}
         hitSlop={4}
         onPress={() => {
-          void Haptics.selectionAsync();
+          void hapticSelection();
           props.onToggle();
         }}
         style={({ pressed }) => ({

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
-  impactAsync: vi.fn(),
-  selectionAsync: vi.fn(),
+  hapticTap: vi.fn(),
+  hapticSelection: vi.fn(),
   setStringAsync: vi.fn(),
 }));
 
@@ -10,12 +10,9 @@ vi.mock("expo-clipboard", () => ({
   setStringAsync: mocks.setStringAsync,
 }));
 
-vi.mock("expo-haptics", () => ({
-  ImpactFeedbackStyle: {
-    Light: "light",
-  },
-  impactAsync: mocks.impactAsync,
-  selectionAsync: mocks.selectionAsync,
+vi.mock("./haptics", () => ({
+  hapticTap: mocks.hapticTap,
+  hapticSelection: mocks.hapticSelection,
 }));
 
 import {
@@ -28,8 +25,8 @@ describe("copyTextWithHaptic", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.setStringAsync.mockReturnValue(new Promise<void>(() => undefined));
-    mocks.impactAsync.mockResolvedValue(undefined);
-    mocks.selectionAsync.mockResolvedValue(undefined);
+    mocks.hapticTap.mockResolvedValue(undefined);
+    mocks.hapticSelection.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -40,7 +37,7 @@ describe("copyTextWithHaptic", () => {
     copyTextWithHaptic("trace-123");
 
     expect(mocks.setStringAsync).toHaveBeenCalledWith("trace-123");
-    expect(mocks.impactAsync).toHaveBeenCalledWith("light");
+    expect(mocks.hapticTap).toHaveBeenCalledOnce();
   });
 
   it("preserves selection feedback for thread work rows", () => {
@@ -50,8 +47,8 @@ describe("copyTextWithHaptic", () => {
     });
 
     expect(mocks.setStringAsync).toHaveBeenCalledWith("work output");
-    expect(mocks.selectionAsync).toHaveBeenCalledOnce();
-    expect(mocks.impactAsync).not.toHaveBeenCalled();
+    expect(mocks.hapticSelection).toHaveBeenCalledOnce();
+    expect(mocks.hapticTap).not.toHaveBeenCalled();
   });
 
   it("reports structured failures without including clipboard contents", async () => {
@@ -59,7 +56,7 @@ describe("copyTextWithHaptic", () => {
     const hapticCause = new Error("native haptic failure");
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     mocks.setStringAsync.mockRejectedValueOnce(clipboardCause);
-    mocks.impactAsync.mockRejectedValueOnce(hapticCause);
+    mocks.hapticTap.mockRejectedValueOnce(hapticCause);
 
     copyTextWithHaptic("secret clipboard contents", { target: "connection-trace-id" });
 

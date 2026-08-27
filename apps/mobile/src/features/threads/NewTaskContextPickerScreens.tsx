@@ -4,7 +4,6 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import * as Haptics from "expo-haptics";
 import { useNavigation } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -35,6 +34,7 @@ import {
 } from "../layout/native-mail-search-toolbar";
 import { branchBadgeLabel, useNewTaskFlow } from "./new-task-flow-provider";
 import { shouldCheckoutNewTaskBranch } from "./new-task-context-presentation";
+import { hapticSelection } from "../../lib/haptics";
 
 function SelectionRow(props: {
   readonly icon?: "arrow.triangle.branch" | "desktopcomputer";
@@ -173,7 +173,7 @@ export function NewTaskEnvironmentPickerRouteScreen() {
               icon="desktopcomputer"
               isLast={index === flow.environments.length - 1}
               onPress={() => {
-                void Haptics.selectionAsync();
+                void hapticSelection();
                 flow.selectEnvironment(environment.environmentId);
                 navigation.goBack();
               }}
@@ -243,7 +243,7 @@ export function NewTaskBranchPickerRouteScreen() {
         return;
       }
       selectingBranchNameRef.current = branch.name;
-      void Haptics.selectionAsync();
+      void hapticSelection();
 
       try {
         let selectedBranch = branch;
