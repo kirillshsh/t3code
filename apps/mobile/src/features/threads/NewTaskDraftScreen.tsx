@@ -6,7 +6,7 @@ import {
   usePreventRemove,
 } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, View } from "react-native";
 import {
   KeyboardController,
   KeyboardStickyView,
@@ -52,6 +52,7 @@ import {
   type ComposerDraft,
 } from "../../state/use-composer-drafts";
 import { useEnvironmentServerConfig, useProjects } from "../../state/entities";
+import { markThreadSendStarted } from "../../state/use-thread-composer-state";
 import { compactModelLabel, resolveSelectableModelSelection } from "../../lib/modelOptions";
 import { deriveThreadTitleFromPrompt } from "../../lib/projectThreadStartTurn";
 import { armAgentAwarenessLiveActivityForLocalWork } from "../agent-awareness/remoteRegistration";
@@ -120,6 +121,7 @@ export function NewTaskDraftScreen(props: {
     reserveShare,
   } = useIncomingShare();
   const insets = useSafeAreaInsets();
+  const submitSpinnerColor = useThemeColor("--color-primary-foreground");
   const { themeAppearance: colorScheme } = useAppearancePreferences();
   const isKeyboardVisible = useKeyboardState((state) => state.isVisible);
   const controlsBottomPadding = Math.max(insets.bottom, 10);
@@ -784,6 +786,12 @@ export function NewTaskDraftScreen(props: {
     } else {
       clearComposerDraftContent(draftKey, { clearWorkspaceSelection: true });
     }
+    // The thread opens before its first turn exists, so the marker is what puts
+    // "Sending" under the message instead of leaving the feed to sit there.
+    markThreadSendStarted({
+      environmentId: result.value.environmentId,
+      threadId: result.value.threadId,
+    });
     navigation.dispatch(
       StackActions.replace("Thread", {
         environmentId: String(result.value.environmentId),
@@ -1048,7 +1056,14 @@ export function NewTaskDraftScreen(props: {
               flow.submitting ? "Starting task" : environmentConnected ? "Start task" : "Queue task"
             }
             disabled={!canStart}
-            icon={environmentConnected ? "arrow.up" : "tray.and.arrow.up"}
+            icon={
+              flow.submitting ? undefined : environmentConnected ? "arrow.up" : "tray.and.arrow.up"
+            }
+            iconNode={
+              flow.submitting ? (
+                <ActivityIndicator size="small" color={submitSpinnerColor} />
+              ) : undefined
+            }
             onPress={() => void handleStart()}
             showChevron={false}
             variant="primary"

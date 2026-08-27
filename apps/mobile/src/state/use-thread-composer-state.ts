@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { Atom } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert } from "react-native";
 import * as Cause from "effect/Cause";
@@ -36,6 +37,7 @@ import {
   makePendingSendSnapshot,
   resolveOptimisticSendStartedAt,
   type PendingSendSnapshot,
+  type ThreadFeedLatestTurn,
 } from "../lib/threadActivity";
 import { appAtomRegistry } from "../state/atom-registry";
 import {
@@ -90,11 +92,56 @@ export function useThreadDraftForThread(input: {
   };
 }
 
+/**
+ * Send markers live outside the thread screen because a send can outlive it:
+ * starting a task creates the thread on another screen and replaces the route,
+ * so a marker held in the screen's own state would be gone by the time the
+ * thread mounts — exactly the case where the feed has the least to show.
+ */
+const pendingSendByThreadKeyAtom = Atom.make<Readonly<Record<string, PendingSendSnapshot>>>(
+  {},
+).pipe(Atom.keepAlive, Atom.withLabel("mobile:thread-composer:pending-send"));
+
+// ponytail: a marker this old means no server frame ever answered the send (a
+// dropped queue entry, an environment that went away). A stale "Sending" is a
+// lying spinner, so it stops being shown; raise the ceiling only if real sends
+// are seen taking longer than this.
+const PENDING_SEND_MAX_AGE_MS = 120_000;
+
+/** Marks a thread as sending, so its feed can say so from the tap frame on. */
+export function markThreadSendStarted(input: {
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
+  readonly startedAt?: string;
+  readonly latestTurn?: ThreadFeedLatestTurn | null;
+}): void {
+  const threadKey = scopedThreadKey(input.environmentId, input.threadId);
+  appAtomRegistry.set(pendingSendByThreadKeyAtom, {
+    ...appAtomRegistry.get(pendingSendByThreadKeyAtom),
+    [threadKey]: makePendingSendSnapshot({
+      threadKey,
+      startedAt: input.startedAt ?? new Date().toISOString(),
+      latestTurn: input.latestTurn ?? null,
+    }),
+  });
+}
+
+function clearThreadSendStarted(threadKey: string): void {
+  const current = appAtomRegistry.get(pendingSendByThreadKeyAtom);
+  if (!current[threadKey]) {
+    return;
+  }
+  const next = { ...current };
+  delete next[threadKey];
+  appAtomRegistry.set(pendingSendByThreadKeyAtom, next);
+}
+
 export function useThreadComposerState() {
   const { selectedThread: selectedThreadShell, selectedEnvironmentRuntime } = useThreadSelection();
   const selectedThreadDetail = useSelectedThreadDetail();
   const composerDrafts = useAtomValue(composerDraftsAtom);
   const queuedMessagesByThreadKey = useThreadOutboxMessages();
+  const pendingSendByThreadKey = useAtomValue(pendingSendByThreadKeyAtom);
   const [feedbackSubmissionsByThreadKey, setFeedbackSubmissionsByThreadKey] = useState<
     Record<string, ReadonlyArray<CodexFeedbackSubmission>>
   >({});
@@ -152,7 +199,14 @@ export function useThreadComposerState() {
 
   // Local marker for the send that has not come back from the server yet: the
   // feed shows "Sending" off it, and drops it the moment a turn frame lands.
-  const [pendingSend, setPendingSend] = useState<PendingSendSnapshot | null>(null);
+  const pendingSendRecord = selectedThreadKey
+    ? (pendingSendByThreadKey[selectedThreadKey] ?? null)
+    : null;
+  const pendingSend =
+    pendingSendRecord !== null &&
+    Date.now() - Date.parse(pendingSendRecord.startedAt) < PENDING_SEND_MAX_AGE_MS
+      ? pendingSendRecord
+      : null;
   const sendStartedAt = useMemo(
     () =>
       resolveOptimisticSendStartedAt(
@@ -162,6 +216,12 @@ export function useThreadComposerState() {
       ),
     [pendingSend, selectedThread?.latestTurn, selectedThreadKey],
   );
+  // Acknowledged markers are dead weight in a store that outlives the screen.
+  useEffect(() => {
+    if (selectedThreadKey && pendingSendRecord && sendStartedAt === null) {
+      clearThreadSendStarted(selectedThreadKey);
+    }
+  }, [pendingSendRecord, selectedThreadKey, sendStartedAt]);
 
   const activeWorkStartedAt = useMemo(() => {
     const selectedThread = selectedThreadDetail ?? selectedThreadShell;
@@ -257,13 +317,12 @@ export function useThreadComposerState() {
 
     const metadata = makeQueuedMessageMetadata();
     const messageId = MessageId.make(metadata.messageId);
-    setPendingSend(
-      makePendingSendSnapshot({
-        threadKey,
-        startedAt: metadata.createdAt,
-        latestTurn: thread.latestTurn,
-      }),
-    );
+    markThreadSendStarted({
+      environmentId: selectedThreadShell.environmentId,
+      threadId: selectedThreadShell.id,
+      startedAt: metadata.createdAt,
+      latestTurn: thread.latestTurn,
+    });
     // Enqueue publishes the queued atom synchronously (the durable write
     // happens behind it), so clearing the draft here gives send feedback on
     // the tap frame instead of after file I/O. If the write fails the message
@@ -289,7 +348,7 @@ export function useThreadComposerState() {
       // the user attached new ones while the write was in flight.
       void mergeComposerDraftContent(threadKey, { text, attachments: [] });
       appendComposerDraftAttachments(threadKey, attachments);
-      setPendingSend(null);
+      clearThreadSendStarted(threadKey);
       setPendingConnectionError(
         error instanceof Error ? error.message : "Failed to save the queued message.",
       );
