@@ -3,7 +3,6 @@ import { type LegendListRef } from "@legendapp/list/react-native";
 import type { EnvironmentId, MessageId, ThreadId, TurnId } from "@t3tools/contracts";
 import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
 import { CHAT_LIST_ANCHOR_OFFSET, resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
-import { formatElapsed } from "@t3tools/shared/orchestrationTiming";
 import { SymbolView } from "../../components/AppSymbol";
 import { HeaderHeightContext } from "@react-navigation/elements";
 import { useNavigation } from "@react-navigation/native";
@@ -44,7 +43,17 @@ import {
 import { TouchableOpacity } from "react-native-gesture-handler";
 import ImageViewing from "react-native-image-viewing";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, { FadeIn, FadeInUp, type SharedValue } from "react-native-reanimated";
+import Animated, {
+  cancelAnimation,
+  Easing,
+  FadeIn,
+  FadeInUp,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+  type SharedValue,
+} from "react-native-reanimated";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { IOS_NAV_BAR_HEIGHT } from "../../lib/layoutMetrics";
 import { useFontFamily } from "../../lib/useFontFamily";
@@ -1190,28 +1199,52 @@ function renderFeedEntry(
   );
 }
 
+/** Clock-style elapsed label — fixed width, so the row never reflows per tick. */
+function formatWorkingClock(startedAt: string): string {
+  const startedMs = Date.parse(startedAt);
+  const elapsedSeconds = Number.isFinite(startedMs)
+    ? Math.max(0, Math.floor((Date.now() - startedMs) / 1_000))
+    : 0;
+  const minutes = Math.floor(elapsedSeconds / 60);
+  return `${minutes}:${String(elapsedSeconds % 60).padStart(2, "0")}`;
+}
+
 const WorkingTimelineRow = memo(function WorkingTimelineRow(props: { readonly startedAt: string }) {
-  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [clock, setClock] = useState(() => formatWorkingClock(props.startedAt));
+  const dotColor = useThemeColor("--color-icon-subtle");
 
   useEffect(() => {
+    setClock(formatWorkingClock(props.startedAt));
     const intervalId = setInterval(() => {
-      setNowMs(Date.now());
+      setClock(formatWorkingClock(props.startedAt));
     }, 1_000);
     return () => clearInterval(intervalId);
   }, [props.startedAt]);
 
-  const durationLabel = formatElapsed(props.startedAt, new Date(nowMs).toISOString()) ?? "0s";
+  // Breathing dot: the row only exists while a turn is in flight, and the
+  // animation runs on the UI thread, so it costs nothing on the JS side.
+  const pulse = useSharedValue(0);
+  useEffect(() => {
+    pulse.value = withRepeat(
+      withTiming(1, { duration: 900, easing: Easing.inOut(Easing.quad) }),
+      -1,
+      true,
+    );
+    return () => cancelAnimation(pulse);
+  }, [pulse]);
+  const dotStyle = useAnimatedStyle(() => ({ opacity: 0.35 + pulse.value * 0.65 }));
 
   return (
-    <View className="mb-4 flex-row items-center gap-2 px-1.5 py-1">
-      <View className="flex-row items-center gap-1">
-        <View className="h-1 w-1 rounded-full bg-neutral-400 dark:bg-neutral-500" />
-        <View className="h-1 w-1 rounded-full bg-neutral-400/80 dark:bg-neutral-500/80" />
-        <View className="h-1 w-1 rounded-full bg-neutral-400/60 dark:bg-neutral-500/60" />
+    <View className="mb-4 flex-row px-1.5">
+      <View className="flex-row items-center gap-2 rounded-full bg-subtle px-2.5 py-1">
+        <Animated.View
+          style={[dotStyle, { width: 6, height: 6, borderRadius: 3, backgroundColor: dotColor }]}
+        />
+        <Text className="font-t3-medium text-xs text-foreground-muted">Working</Text>
+        <Text className="font-t3-medium text-xs tabular-nums text-foreground-tertiary">
+          {clock}
+        </Text>
       </View>
-      <Text className="font-t3-medium text-xs tabular-nums text-neutral-600 dark:text-neutral-400">
-        Working for {durationLabel}
-      </Text>
     </View>
   );
 });
