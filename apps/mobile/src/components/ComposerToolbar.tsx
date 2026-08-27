@@ -38,6 +38,7 @@ export function ComposerInlineControl(props: {
   readonly label: string;
   readonly maxWidth?: number;
   readonly onPress?: () => void;
+  readonly secondaryLabel?: string;
   readonly selected?: boolean;
   readonly static?: boolean;
   readonly chevronDirection?: "down" | "right";
@@ -85,6 +86,11 @@ export function ComposerInlineControl(props: {
       >
         {props.label}
       </Text>
+      {props.secondaryLabel ? (
+        <Text className="shrink-0 text-sm font-t3-medium text-foreground-muted" numberOfLines={1}>
+          {props.secondaryLabel}
+        </Text>
+      ) : null}
       {props.showChevron === false ? null : (
         <SymbolView
           name={props.chevronDirection === "right" ? "chevron.right" : "chevron.down"}

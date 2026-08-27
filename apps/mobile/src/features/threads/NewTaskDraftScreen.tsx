@@ -5,7 +5,7 @@ import {
   useNavigation,
   usePreventRemove,
 } from "@react-navigation/native";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, View } from "react-native";
 import {
   KeyboardController,
@@ -66,6 +66,7 @@ import {
   resolveNewTaskWorkspaceLabel,
 } from "./new-task-context-presentation";
 import { useIncomingShare } from "../sharing/IncomingShareProvider";
+import { reasoningValueLabel, resolveProviderOptionDescriptors } from "../../lib/providerOptions";
 
 function NewTaskWorkspaceIcon(props: {
   readonly workspaceMode: "local" | "worktree";
@@ -100,6 +101,16 @@ export function NewTaskDraftScreen(props: {
   const projects = useProjects();
   const createProjectThread = useCreateProjectThread();
   const flow = useNewTaskFlow();
+  const reasoningLabel = useMemo(
+    () =>
+      reasoningValueLabel(
+        resolveProviderOptionDescriptors({
+          capabilities: flow.selectedModelOption?.capabilities,
+          selections: flow.selectedModel?.options,
+        }),
+      ),
+    [flow.selectedModel?.options, flow.selectedModelOption?.capabilities],
+  );
   const navigation = useNavigation();
   const {
     consumeShare,
@@ -1009,8 +1020,9 @@ export function NewTaskDraftScreen(props: {
                   ? compactModelLabel(flow.selectedModelOption.label)
                   : "Choose model"
               }
-              maxWidth={152}
+              maxWidth={230}
               onPress={settingsSheetPresentation.open}
+              secondaryLabel={flow.selectedModelOption ? reasoningLabel : undefined}
             />
             {flow.planModeEnabled ? (
               <ComposerInlineControl

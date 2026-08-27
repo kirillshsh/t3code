@@ -72,3 +72,23 @@ export function applyProviderOptionSelection(
 
   return buildProviderOptionSelectionsFromDescriptors(nextDescriptors) ?? [];
 }
+
+/**
+ * Descriptor ids the providers use for their reasoning/effort select, shown
+ * next to the model name in the composer pill.
+ */
+const REASONING_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([
+  "effort",
+  "reasoning",
+  "reasoningEffort",
+]);
+
+export function reasoningValueLabel(
+  descriptors: ReadonlyArray<ProviderOptionDescriptor>,
+): string | undefined {
+  return getProviderOptionCurrentLabel(
+    descriptors.find(
+      (descriptor) => descriptor.type === "select" && REASONING_DESCRIPTOR_IDS.has(descriptor.id),
+    ),
+  );
+}

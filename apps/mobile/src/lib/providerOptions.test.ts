@@ -5,6 +5,7 @@ import type { ModelCapabilities } from "@t3tools/contracts";
 import {
   applyProviderOptionSelection,
   providerOptionValueLabels,
+  reasoningValueLabel,
   resolveProviderOptionDescriptors,
 } from "./providerOptions";
 
@@ -60,6 +61,26 @@ describe("mobile provider options", () => {
       applyProviderOptionSelection(descriptors, { id: "serviceTier", value: "turbo" }),
     ).toBeNull();
     expect(applyProviderOptionSelection(descriptors, { id: "unknown", value: "high" })).toBeNull();
+  });
+
+  it("picks the reasoning level out of the provider's own select id", () => {
+    expect(
+      reasoningValueLabel(
+        resolveProviderOptionDescriptors({
+          capabilities: CODEX_CAPABILITIES,
+          selections: [{ id: "reasoningEffort", value: "high" }],
+        }),
+      ),
+    ).toBe("High");
+    // Models without a reasoning select just don't show one.
+    expect(
+      reasoningValueLabel(
+        resolveProviderOptionDescriptors({
+          capabilities: { optionDescriptors: [{ id: "fastMode", label: "Fast", type: "boolean" }] },
+          selections: undefined,
+        }),
+      ),
+    ).toBeUndefined();
   });
 
   it("treats an unspecified boolean capability as off", () => {

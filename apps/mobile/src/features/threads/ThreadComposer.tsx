@@ -64,7 +64,7 @@ import {
   normalizeSearchQuery,
   scoreQueryMatch,
 } from "@t3tools/shared/searchRanking";
-import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
+import { reasoningValueLabel, resolveProviderOptionDescriptors } from "../../lib/providerOptions";
 import { useComposerPathSearch } from "../../state/use-composer-path-search";
 import { ComposerCommandPopover, type ComposerCommandItem } from "./ComposerCommandPopover";
 import { matchesSlashSkillQuery } from "./composerSlashSkillSearch";
@@ -893,18 +893,21 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   onPress={() => void props.onPickDraftImages()}
                   showChevron={false}
                 />
-                <ComposerInlineControl
-                  accessibilityLabel="Model and reasoning settings"
-                  emphasized
-                  iconNode={
-                    <ProviderIcon provider={currentModelOption?.providerDriver} size={16} />
-                  }
-                  label={compactModelLabel(
-                    currentModelOption?.label ?? currentModelSelection.model,
-                  )}
-                  maxWidth={152}
-                  onPress={openSettings}
-                />
+                <Animated.View layout={COMPOSER_LAYOUT_TRANSITION}>
+                  <ComposerInlineControl
+                    accessibilityLabel="Model and reasoning settings"
+                    emphasized
+                    iconNode={
+                      <ProviderIcon provider={currentModelOption?.providerDriver} size={16} />
+                    }
+                    label={compactModelLabel(
+                      currentModelOption?.label ?? currentModelSelection.model,
+                    )}
+                    maxWidth={230}
+                    onPress={openSettings}
+                    secondaryLabel={reasoningValueLabel(providerOptionDescriptors)}
+                  />
+                </Animated.View>
                 {showStopAction ? (
                   <Animated.View
                     entering={FadeIn.duration(160)}
