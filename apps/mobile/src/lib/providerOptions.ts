@@ -77,7 +77,7 @@ export function applyProviderOptionSelection(
  * Descriptor ids the providers use for their reasoning/effort select, shown
  * next to the model name in the composer pill.
  */
-const REASONING_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([
+export const REASONING_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([
   "effort",
   "reasoning",
   "reasoningEffort",

@@ -19,18 +19,6 @@ export function modelMatchesCatalogQuery(input: {
   ].some((value) => value.toLocaleLowerCase().includes(query));
 }
 
-/** Preserve staged provider options when the highlighted model is tapped again. */
-export function pendingModelAfterPress(input: {
-  readonly current: ModelOption | null;
-  readonly pressed: ModelOption;
-  readonly pressedIsApplied: boolean;
-}): ModelOption | null {
-  if (input.pressedIsApplied) {
-    return null;
-  }
-  return input.current?.key === input.pressed.key ? input.current : input.pressed;
-}
-
 /**
  * Primary and selected providers start open; all other catalogs start closed.
  * A user's disclosure tap inverts that default until the picker is dismissed.

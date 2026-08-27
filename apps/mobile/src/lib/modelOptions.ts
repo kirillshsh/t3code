@@ -189,6 +189,22 @@ export function groupByProvider(options: ReadonlyArray<ModelOption>): ReadonlyAr
 }
 
 /**
+ * One line describing what a model brings, shown under its name in the
+ * catalog: the option levers it advertises, with the context window resolved
+ * to its size so "200k" and "1M" models are told apart before selection.
+ */
+export function modelCapabilitySummary(option: ModelOption): string | undefined {
+  const parts = (option.capabilities?.optionDescriptors ?? []).map((descriptor) => {
+    if (descriptor.type !== "select" || descriptor.id !== "contextWindow") {
+      return descriptor.label;
+    }
+    const size = descriptor.options.find((choice) => choice.isDefault)?.label;
+    return size ? `${size} context` : descriptor.label;
+  });
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
+/**
  * Composer pills are narrow and the provider icon already names the vendor, so
  * the vendor prefix only steals width: "Claude Opus 5" reads as "Opus 5".
  * Names that carry no vendor prefix, like "GPT-5.1 Codex", pass through.

@@ -6,6 +6,7 @@ import {
   buildModelOptions,
   compactModelLabel,
   groupByProvider,
+  modelCapabilitySummary,
   resolveDefaultableModelSelection,
   resolveSelectableModelSelection,
 } from "./modelOptions";
@@ -177,5 +178,53 @@ describe("mobile model options", () => {
     expect(compactModelLabel("Claude Opus 5")).toBe("Opus 5");
     expect(compactModelLabel("Claude Fable 5")).toBe("Fable 5");
     expect(compactModelLabel("GPT-5.1 Codex")).toBe("GPT-5.1 Codex");
+  });
+
+  it("summarizes what a catalog model offers, with the context size resolved", () => {
+    const config = {
+      providers: [
+        {
+          instanceId: "claude",
+          driver: "claudeAgent",
+          displayName: "Claude",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          models: [
+            {
+              slug: "claude-opus-5",
+              name: "Claude Opus 5",
+              isCustom: false,
+              capabilities: {
+                optionDescriptors: [
+                  {
+                    id: "effort",
+                    label: "Reasoning",
+                    type: "select",
+                    options: [{ id: "high", label: "High", isDefault: true }],
+                  },
+                  { id: "fastMode", label: "Fast Mode", type: "boolean" },
+                  {
+                    id: "contextWindow",
+                    label: "Context Window",
+                    type: "select",
+                    options: [
+                      { id: "200k", label: "200k" },
+                      { id: "1m", label: "1M", isDefault: true },
+                    ],
+                  },
+                ],
+              },
+            },
+            { slug: "bare", name: "Bare", isCustom: false, capabilities: null },
+          ],
+        },
+      ],
+    } as unknown as ServerConfig;
+
+    const [opus, bare] = buildModelOptions(config, null);
+
+    expect(modelCapabilitySummary(opus!)).toBe("Reasoning · Fast Mode · 1M context");
+    expect(modelCapabilitySummary(bare!)).toBeUndefined();
   });
 });

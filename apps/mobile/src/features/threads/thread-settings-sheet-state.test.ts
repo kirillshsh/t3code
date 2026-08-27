@@ -3,7 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { ProviderInstanceId, type ProviderOptionSelection } from "@t3tools/contracts";
 
 import type { ModelOption } from "../../lib/modelOptions";
-import { modelMatchesCatalogQuery, pendingModelAfterPress } from "./thread-settings-sheet-state";
+import { modelMatchesCatalogQuery } from "./thread-settings-sheet-state";
 
 function modelOption(
   model: string,
@@ -46,39 +46,5 @@ describe("thread settings sheet state", () => {
         query: "   ",
       }),
     ).toBe(true);
-  });
-
-  it("clears staging when the applied model is pressed", () => {
-    expect(
-      pendingModelAfterPress({
-        current: modelOption("gpt-next"),
-        pressed: modelOption("gpt-current"),
-        pressedIsApplied: true,
-      }),
-    ).toBeNull();
-  });
-
-  it("preserves staged options when the highlighted model is pressed again", () => {
-    const pending = modelOption("gpt-next", [{ id: "effort", value: "high" }]);
-
-    expect(
-      pendingModelAfterPress({
-        current: pending,
-        pressed: modelOption("gpt-next"),
-        pressedIsApplied: false,
-      }),
-    ).toBe(pending);
-  });
-
-  it("stages a different model", () => {
-    const pressed = modelOption("gpt-other");
-
-    expect(
-      pendingModelAfterPress({
-        current: modelOption("gpt-next"),
-        pressed,
-        pressedIsApplied: false,
-      }),
-    ).toBe(pressed);
   });
 });

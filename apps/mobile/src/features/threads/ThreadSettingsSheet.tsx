@@ -1,5 +1,6 @@
 import type {
   ModelSelection,
+  ProviderOptionChoice,
   ProviderOptionDescriptor,
   ProviderOptionSelection,
   RuntimeMode,
@@ -10,7 +11,6 @@ import { HeaderHeightContext } from "@react-navigation/elements";
 import {
   getProviderOptionCurrentLabel,
   getProviderOptionCurrentValue,
-  getProviderOptionDescriptors,
 } from "@t3tools/shared/model";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import {
@@ -36,7 +36,11 @@ import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { ThemedSwitch } from "../../components/ThemedSwitch";
 import { cn } from "../../lib/cn";
-import type { ModelOption, ProviderGroup } from "../../lib/modelOptions";
+import {
+  modelCapabilitySummary,
+  type ModelOption,
+  type ProviderGroup,
+} from "../../lib/modelOptions";
 import { applyProviderOptionSelection } from "../../lib/providerOptions";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
 import { useThemeColor } from "../../lib/useThemeColor";
@@ -52,10 +56,15 @@ import {
   NATIVE_MAIL_SEARCH_TOOLBAR_CONTENT_INSET,
   NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
 } from "../layout/native-mail-search-toolbar";
-import { RUNTIME_MODE_CHOICES, selectableChoices } from "./thread-settings-options";
+import {
+  canRenderChoiceSegments,
+  choiceDescription,
+  RUNTIME_MODE_CHOICES,
+  segmentChoiceLabel,
+  selectableChoices,
+} from "./thread-settings-options";
 import {
   modelMatchesCatalogQuery,
-  pendingModelAfterPress,
   providerSectionIsCollapsed,
 } from "./thread-settings-sheet-state";
 import { hapticSelection } from "../../lib/haptics";
@@ -78,12 +87,22 @@ const THREAD_SETTINGS_CATALOG_LAYOUT_TRANSITION = LinearTransition.duration(180)
 const THREAD_SETTINGS_CATALOG_ENTER_TRANSITION = FadeIn.duration(140);
 const THREAD_SETTINGS_CATALOG_EXIT_TRANSITION = FadeOut.duration(120);
 const THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION = LinearTransition.duration(180);
-const THREAD_SETTINGS_OPTION_ENTER_TRANSITION = FadeIn.duration(140);
-const THREAD_SETTINGS_OPTION_EXIT_TRANSITION = FadeOut.duration(100);
 const THREAD_SETTINGS_HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(
   Platform.OS,
   Platform.Version,
 );
+
+/** Section caption above a settings card. */
+function SectionLabel(props: { readonly title: string; readonly className?: string }) {
+  return (
+    <Text
+      className={cn("px-5 pb-2 pt-2 text-sm font-t3-medium text-foreground-muted", props.className)}
+    >
+      {props.title}
+    </Text>
+  );
+}
+
 function ModelRow(props: {
   readonly option: ModelOption;
   readonly selected: boolean;
@@ -92,6 +111,9 @@ function ModelRow(props: {
   readonly isLast: boolean;
 }) {
   const checkmarkColor = useThemeColor("--color-icon");
+  // What the model brings — its option levers and context size — so the pick
+  // is informed before the summary screen shows the same levers.
+  const summary = useMemo(() => modelCapabilitySummary(props.option), [props.option]);
   return (
     <Pressable
       accessibilityLabel={props.option.label}
@@ -107,19 +129,31 @@ function ModelRow(props: {
         props.isLast ? "rounded-b-[20px]" : "border-b border-border-subtle",
       )}
     >
-      <Text className="min-w-0 shrink text-base font-t3-medium text-foreground" numberOfLines={1}>
-        {props.option.label}
-      </Text>
-      {props.option.isDefault ? (
-        <View className="rounded-md bg-subtle-strong px-1.5 py-0.5">
-          <Text className="text-3xs font-t3-bold text-foreground-muted">Default</Text>
+      <View className="min-w-0 shrink gap-0.5">
+        <View className="flex-row items-center gap-2">
+          <Text
+            className="min-w-0 shrink text-base font-t3-medium text-foreground"
+            numberOfLines={1}
+          >
+            {props.option.label}
+          </Text>
+          {props.option.isDefault ? (
+            <View className="rounded-md bg-subtle-strong px-1.5 py-0.5">
+              <Text className="text-3xs font-t3-bold text-foreground-muted">Default</Text>
+            </View>
+          ) : null}
+          {props.option.isLegacy ? (
+            <View className="rounded-md bg-subtle px-1.5 py-0.5">
+              <Text className="text-3xs font-t3-bold text-foreground-muted">Legacy</Text>
+            </View>
+          ) : null}
         </View>
-      ) : null}
-      {props.option.isLegacy ? (
-        <View className="rounded-md bg-subtle px-1.5 py-0.5">
-          <Text className="text-3xs font-t3-bold text-foreground-muted">Legacy</Text>
-        </View>
-      ) : null}
+        {summary ? (
+          <Text className="text-xs text-foreground-tertiary" numberOfLines={1}>
+            {summary}
+          </Text>
+        ) : null}
+      </View>
       <View className="flex-1" />
       {props.selected ? (
         <SymbolView
@@ -191,7 +225,8 @@ function ProviderHeader(props: {
 /** Compact row that opens a single-choice submenu panel. */
 function DisclosureRow(props: {
   readonly label: string;
-  readonly value: string | undefined;
+  readonly value?: string | undefined;
+  readonly description?: string | undefined;
   readonly onPress: () => void;
   readonly isLast?: boolean;
 }) {
@@ -205,8 +240,12 @@ function DisclosureRow(props: {
         !props.isLast && "border-b border-border-subtle",
       )}
     >
-      <Text className="text-base font-t3-medium text-foreground">{props.label}</Text>
-      <View className="flex-1" />
+      <View className="min-w-0 flex-1 gap-0.5">
+        <Text className="text-base font-t3-medium text-foreground">{props.label}</Text>
+        {props.description ? (
+          <Text className="text-xs leading-[17px] text-foreground-muted">{props.description}</Text>
+        ) : null}
+      </View>
       {props.value ? (
         <Text className="text-base text-foreground-muted" numberOfLines={1}>
           {props.value}
@@ -214,6 +253,92 @@ function DisclosureRow(props: {
       ) : null}
       <SymbolView name="chevron.right" size={12} tintColor={iconSubtle} type="monochrome" />
     </Pressable>
+  );
+}
+
+/**
+ * A short choice set (reasoning levels, context sizes, service tiers) shown in
+ * place: one tap instead of a push, a pick and a way back.
+ */
+function SegmentedRow(props: {
+  readonly label: string;
+  readonly choices: ReadonlyArray<ProviderOptionChoice>;
+  readonly value: string | undefined;
+  readonly description?: string | undefined;
+  readonly onSelect: (choiceId: string) => void;
+  readonly isLast?: boolean;
+}) {
+  // Two choices sit beside their label; a wider set needs the full row width.
+  const inline = props.choices.length <= 2;
+  const segments = (
+    <View
+      className={cn("flex-row gap-[3px] rounded-[13px] bg-subtle p-[3px]", !inline && "w-full")}
+    >
+      {props.choices.map((choice) => {
+        const selected = choice.id === props.value;
+        return (
+          <Pressable
+            key={choice.id}
+            accessibilityLabel={choice.label}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: selected }}
+            hitSlop={{ bottom: 8, top: 8 }}
+            onPress={() => {
+              if (selected) {
+                return;
+              }
+              void hapticSelection();
+              props.onSelect(choice.id);
+            }}
+            className={cn(
+              "h-10 items-center justify-center rounded-[10px] active:opacity-60",
+              inline ? "min-w-[62px] px-3" : "flex-1",
+              selected && "bg-subtle-strong",
+            )}
+          >
+            <Text
+              className={cn(
+                "text-xs",
+                selected ? "font-t3-bold text-foreground" : "text-foreground-muted",
+              )}
+              numberOfLines={1}
+            >
+              {segmentChoiceLabel(choice.label)}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+
+  if (inline) {
+    return (
+      <View
+        className={cn(
+          "min-h-[52px] flex-row items-center gap-3 bg-card px-4 py-2",
+          !props.isLast && "border-b border-border-subtle",
+        )}
+      >
+        <Text className="min-w-0 flex-1 text-base font-t3-medium text-foreground">
+          {props.label}
+        </Text>
+        {segments}
+      </View>
+    );
+  }
+
+  return (
+    <View
+      className={cn("bg-card px-4 pb-4 pt-3", !props.isLast && "border-b border-border-subtle")}
+    >
+      <Text className="pb-2.5 text-base font-t3-medium text-foreground">{props.label}</Text>
+      {segments}
+      {props.description ? (
+        <Text className="pt-2.5 text-xs leading-[17px] text-foreground-muted">
+          {props.description}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -258,6 +383,7 @@ function ChoiceRow(props: {
 
 function SwitchRow(props: {
   readonly label: string;
+  readonly description?: string | undefined;
   readonly value: boolean;
   readonly onValueChange: (value: boolean) => void;
   readonly isLast?: boolean;
@@ -265,11 +391,16 @@ function SwitchRow(props: {
   return (
     <View
       className={cn(
-        "min-h-[52px] flex-row items-center justify-between bg-card px-4 py-1",
+        "min-h-[52px] flex-row items-center justify-between gap-3 bg-card px-4 py-1",
         !props.isLast && "border-b border-border-subtle",
       )}
     >
-      <Text className="text-base font-t3-medium text-foreground">{props.label}</Text>
+      <View className="min-w-0 flex-1 gap-0.5">
+        <Text className="text-base font-t3-medium text-foreground">{props.label}</Text>
+        {props.description ? (
+          <Text className="text-xs leading-[17px] text-foreground-muted">{props.description}</Text>
+        ) : null}
+      </View>
       <ThemedSwitch
         accessibilityLabel={props.label}
         onValueChange={props.onValueChange}
@@ -338,18 +469,17 @@ type ThreadSettingsSessionValue = {
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
   readonly runtimeMode: RuntimeMode;
   readonly onUpdateRuntimeMode: (mode: RuntimeMode) => void;
-  readonly displayedDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
+  readonly optionDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
+  readonly appliedOption: ModelOption | null;
+  readonly selectedModel: ModelSelection | null;
   readonly providerExpansionOverrides: ReadonlySet<string>;
   readonly hasLegacyModels: boolean;
-  readonly pendingModel: ModelOption | null;
   readonly providerFilter: string | null;
   readonly searchQuery: string;
   readonly showLegacy: boolean;
   readonly applyOptionChange: (id: string, value: string | boolean) => void;
-  readonly commitPendingModel: () => void;
   readonly isApplied: (option: ModelOption) => boolean;
-  readonly isDisplayed: (option: ModelOption) => boolean;
-  readonly pressModel: (option: ModelOption) => void;
+  readonly selectModel: (option: ModelOption) => void;
   readonly setProviderFilter: (providerKey: string | null) => void;
   readonly setSearchQuery: (query: string) => void;
   readonly setShowLegacy: (showLegacy: boolean) => void;
@@ -358,7 +488,7 @@ type ThreadSettingsSessionValue = {
 
 const ThreadSettingsSessionContext = createContext<ThreadSettingsSessionValue | null>(null);
 
-/** Owns the staged model and option state for one picker presentation. */
+/** Owns the catalog's browsing state for one picker presentation. */
 function ThreadSettingsSessionProvider(
   props: ThreadSettingsSessionProps & { readonly children: ReactNode },
 ) {
@@ -368,7 +498,6 @@ function ThreadSettingsSessionProvider(
   const [providerExpansionOverrides, setProviderExpansionOverrides] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
-  const [pendingModel, setPendingModel] = useState<ModelOption | null>(null);
 
   const isApplied = useCallback(
     (option: ModelOption) =>
@@ -376,55 +505,26 @@ function ThreadSettingsSessionProvider(
       option.selection.model === props.selectedModel.model,
     [props.selectedModel],
   );
-  // The list highlights the staged pick; Save turns it into the applied one.
-  const isDisplayed = useCallback(
-    (option: ModelOption) => (pendingModel ? option.key === pendingModel.key : isApplied(option)),
-    [isApplied, pendingModel],
-  );
 
-  // While a model is staged, the settings rows describe and edit the staged
-  // model's options (kept on its pending selection); Save applies model and
-  // options together. Otherwise they edit the applied selection directly.
-  const displayedDescriptors = useMemo(
-    () =>
-      pendingModel
-        ? pendingModel.capabilities
-          ? getProviderOptionDescriptors({
-              caps: pendingModel.capabilities,
-              selections: pendingModel.selection.options,
-            })
-          : []
-        : props.optionDescriptors,
-    [pendingModel, props.optionDescriptors],
+  const appliedOption = useMemo(
+    () => props.providerGroups.flatMap((group) => group.models).find(isApplied) ?? null,
+    [isApplied, props.providerGroups],
   );
 
   const hasLegacyModels = useMemo(
     () => props.providerGroups.some((group) => group.models.some((model) => model.isLegacy)),
     [props.providerGroups],
   );
-  const commitPendingModel = useCallback(() => {
-    if (pendingModel) {
-      void hapticSelection();
-      props.onSelectModel(pendingModel);
-    }
-  }, [pendingModel, props.onSelectModel]);
 
   const applyOptionChange = useCallback(
     (id: string, value: string | boolean) => {
-      const next = applyProviderOptionSelection(displayedDescriptors, { id, value });
+      const next = applyProviderOptionSelection(props.optionDescriptors, { id, value });
       if (!next) {
         return;
       }
-      if (pendingModel) {
-        setPendingModel({
-          ...pendingModel,
-          selection: { ...pendingModel.selection, options: next },
-        });
-      } else {
-        props.onUpdateOptionSelections(next);
-      }
+      props.onUpdateOptionSelections(next);
     },
-    [displayedDescriptors, pendingModel, props.onUpdateOptionSelections],
+    [props.onUpdateOptionSelections, props.optionDescriptors],
   );
 
   const toggleProvider = useCallback((providerKey: string) => {
@@ -437,18 +537,14 @@ function ThreadSettingsSessionProvider(
     });
   }, []);
 
-  const pressModel = useCallback(
+  // The model applies on the tap that picked it: the summary screen behind the
+  // catalog is what confirms the choice, so there is nothing left to stage.
+  const selectModel = useCallback(
     (option: ModelOption) => {
       void hapticSelection();
-      setPendingModel((current) =>
-        pendingModelAfterPress({
-          current,
-          pressed: option,
-          pressedIsApplied: isApplied(option),
-        }),
-      );
+      props.onSelectModel(option);
     },
-    [isApplied],
+    [props.onSelectModel],
   );
 
   const value = useMemo<ThreadSettingsSessionValue>(
@@ -456,38 +552,36 @@ function ThreadSettingsSessionProvider(
       providerGroups: props.providerGroups,
       runtimeMode: props.runtimeMode,
       onUpdateRuntimeMode: props.onUpdateRuntimeMode,
-      displayedDescriptors,
+      optionDescriptors: props.optionDescriptors,
+      appliedOption,
+      selectedModel: props.selectedModel,
       providerExpansionOverrides,
       hasLegacyModels,
-      pendingModel,
       providerFilter,
       searchQuery,
       showLegacy: showLegacyToggle,
       applyOptionChange,
-      commitPendingModel,
       isApplied,
-      isDisplayed,
-      pressModel,
+      selectModel,
       setProviderFilter,
       setSearchQuery,
       setShowLegacy: setShowLegacyToggle,
       toggleProvider,
     }),
     [
+      appliedOption,
       applyOptionChange,
-      commitPendingModel,
-      displayedDescriptors,
       providerExpansionOverrides,
       hasLegacyModels,
       isApplied,
-      isDisplayed,
-      pendingModel,
-      pressModel,
-      providerFilter,
       props.onUpdateRuntimeMode,
+      props.optionDescriptors,
       props.providerGroups,
       props.runtimeMode,
+      props.selectedModel,
+      providerFilter,
       searchQuery,
+      selectModel,
       showLegacyToggle,
       toggleProvider,
     ],
@@ -534,22 +628,19 @@ type ThreadSettingsCatalogItem =
   | {
       readonly kind: "empty";
       readonly key: "empty";
-    }
-  | {
-      readonly kind: "options";
-      readonly key: "options";
     };
 
 function ThreadSettingsModelListRow(props: {
   readonly option: ModelOption;
   readonly isFirst: boolean;
   readonly isLast: boolean;
+  readonly onSelected: () => void;
 }) {
   const session = useThreadSettingsSession();
-  const onPress = useCallback(
-    () => session.pressModel(props.option),
-    [props.option, session.pressModel],
-  );
+  const onPress = useCallback(() => {
+    session.selectModel(props.option);
+    props.onSelected();
+  }, [props.onSelected, props.option, session.selectModel]);
 
   return (
     <ModelRow
@@ -557,7 +648,7 @@ function ThreadSettingsModelListRow(props: {
       isLast={props.isLast}
       onPress={onPress}
       option={props.option}
-      selected={session.isDisplayed(props.option)}
+      selected={session.isApplied(props.option)}
     />
   );
 }
@@ -595,7 +686,7 @@ function useThreadSettingsCatalogItems(
         const driver = group.models[0]?.providerDriver;
         const catalogModels = session.showLegacy
           ? group.models
-          : group.models.filter((model) => !model.isLegacy || session.isDisplayed(model));
+          : group.models.filter((model) => !model.isLegacy || session.isApplied(model));
         const visibleModels = catalogModels.filter((model) =>
           modelMatchesCatalogQuery({
             model,
@@ -607,9 +698,6 @@ function useThreadSettingsCatalogItems(
           return [];
         }
         const isPrimary = driver !== undefined && PRIMARY_PROVIDER_DRIVERS.has(driver);
-        // Staging a model must not change disclosure state. The applied model
-        // stays stable for the lifetime of this picker (Save closes it), so it
-        // is safe to use as the initial selected-provider default.
         const containsAppliedSelection = group.models.some(session.isApplied);
         const isNarrowed = session.providerFilter !== null || session.searchQuery.trim().length > 0;
         const collapsible = !isNarrowed;
@@ -644,7 +732,6 @@ function useThreadSettingsCatalogItems(
       }),
     [
       session.isApplied,
-      session.isDisplayed,
       session.providerExpansionOverrides,
       session.providerFilter,
       session.providerGroups,
@@ -654,93 +741,173 @@ function useThreadSettingsCatalogItems(
   );
 }
 
-function ThreadSettingsOptionsItem(props: {
-  readonly animationsReady: boolean;
+/** Horizontal provider filter, in place of a filter buried in a header menu. */
+function ProviderFilterChips() {
+  const session = useThreadSettingsSession();
+  if (session.providerGroups.length < 2) {
+    return null;
+  }
+
+  const chips = [
+    { key: null, label: "All", count: undefined as number | undefined },
+    ...session.providerGroups.map((group) => ({
+      key: group.providerKey,
+      label: group.providerLabel,
+      count: group.models.length,
+    })),
+  ];
+
+  return (
+    <ScrollView
+      className="grow-0"
+      contentContainerStyle={{ gap: 8, paddingHorizontal: 16 }}
+      horizontal
+      keyboardShouldPersistTaps="handled"
+      showsHorizontalScrollIndicator={false}
+    >
+      {chips.map((chip) => {
+        const active = session.providerFilter === chip.key;
+        return (
+          <Pressable
+            key={chip.key ?? "all"}
+            accessibilityLabel={chip.label}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+            onPress={() => session.setProviderFilter(chip.key)}
+            className={cn(
+              "h-9 flex-row items-center gap-1.5 rounded-full px-3.5 active:opacity-60",
+              active ? "bg-subtle-strong" : "bg-subtle",
+            )}
+          >
+            <Text
+              className={cn(
+                "text-xs",
+                active ? "font-t3-bold text-foreground" : "text-foreground-secondary",
+              )}
+            >
+              {chip.label}
+            </Text>
+            {chip.count !== undefined ? (
+              <Text className="text-2xs text-foreground-tertiary">{chip.count}</Text>
+            ) : null}
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
+/** The thread's model, its options and its permissions on one screen. */
+function ThreadSettingsSummaryContent(props: {
+  readonly onOpenCatalog: () => void;
   readonly onOpenSubmenu: (submenu: ThreadSettingsSubmenuPage) => void;
 }) {
   const insets = useSafeAreaInsets();
   const session = useThreadSettingsSession();
-  const bottomToolbarInset =
-    Platform.OS === "ios" && NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED
-      ? NATIVE_MAIL_SEARCH_TOOLBAR_CONTENT_INSET
-      : 0;
+  const iconSubtle = useThemeColor("--color-icon-subtle");
+  const runtimeChoice = RUNTIME_MODE_CHOICES.find((choice) => choice.mode === session.runtimeMode);
+  const modelLabel =
+    session.appliedOption?.label ?? session.selectedModel?.model ?? "Choose a model";
 
   return (
-    <View style={{ paddingBottom: insets.bottom + bottomToolbarInset + 12 }}>
-      <Text className="px-5 pb-2 pt-2 text-sm font-t3-medium text-foreground-muted">Options</Text>
+    <ScrollView
+      className="flex-1 bg-sheet"
+      contentContainerStyle={{ paddingBottom: insets.bottom + 24, paddingTop: 4 }}
+      contentInsetAdjustmentBehavior="automatic"
+      showsVerticalScrollIndicator={false}
+    >
+      <SectionLabel title="Model" />
       <Animated.View
         className="mx-4 overflow-hidden rounded-[20px] bg-card"
         layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}
       >
-        {session.displayedDescriptors.map((descriptor) => {
-          if (descriptor.type === "select") {
+        <Pressable
+          accessibilityLabel={`Model, ${modelLabel}`}
+          accessibilityRole="button"
+          onPress={props.onOpenCatalog}
+          className={cn(
+            "min-h-[64px] flex-row items-center gap-3 px-4 py-2 active:bg-subtle-strong",
+            session.optionDescriptors.length > 0 && "border-b border-border-subtle",
+          )}
+        >
+          <ProviderIcon provider={session.appliedOption?.providerDriver} size={22} />
+          <View className="min-w-0 flex-1 gap-0.5">
+            <Text className="text-base font-t3-medium text-foreground" numberOfLines={1}>
+              {modelLabel}
+            </Text>
+            {session.appliedOption ? (
+              <Text className="text-xs text-foreground-muted" numberOfLines={1}>
+                {session.appliedOption.providerLabel}
+              </Text>
+            ) : null}
+          </View>
+          <Text className="text-sm text-foreground-muted">Change</Text>
+          <SymbolView name="chevron.right" size={12} tintColor={iconSubtle} type="monochrome" />
+        </Pressable>
+
+        {session.optionDescriptors.map((descriptor, index) => {
+          const isLast = index === session.optionDescriptors.length - 1;
+          if (descriptor.type === "boolean") {
             return (
-              <Animated.View
-                key={descriptor.id}
-                entering={
-                  props.animationsReady ? THREAD_SETTINGS_OPTION_ENTER_TRANSITION : undefined
-                }
-                exiting={props.animationsReady ? THREAD_SETTINGS_OPTION_EXIT_TRANSITION : undefined}
-                layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}
-              >
-                <DisclosureRow
+              <Animated.View key={descriptor.id} layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}>
+                <SwitchRow
+                  description={descriptor.description}
+                  isLast={isLast}
                   label={descriptor.label}
-                  value={getProviderOptionCurrentLabel(descriptor)}
-                  onPress={() => props.onOpenSubmenu({ kind: "descriptor", id: descriptor.id })}
+                  onValueChange={(value) => session.applyOptionChange(descriptor.id, value)}
+                  value={descriptor.currentValue ?? false}
                 />
               </Animated.View>
             );
           }
+
+          const choices = selectableChoices(descriptor);
+          const rawValue = getProviderOptionCurrentValue(descriptor);
+          const currentValue = typeof rawValue === "string" ? rawValue : undefined;
           return (
-            <Animated.View
-              key={descriptor.id}
-              entering={props.animationsReady ? THREAD_SETTINGS_OPTION_ENTER_TRANSITION : undefined}
-              exiting={props.animationsReady ? THREAD_SETTINGS_OPTION_EXIT_TRANSITION : undefined}
-              layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}
-            >
-              <SwitchRow
-                label={descriptor.label}
-                value={descriptor.currentValue ?? false}
-                onValueChange={(value) => session.applyOptionChange(descriptor.id, value)}
-              />
+            <Animated.View key={descriptor.id} layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}>
+              {canRenderChoiceSegments(choices) ? (
+                <SegmentedRow
+                  choices={choices}
+                  description={choiceDescription(descriptor, currentValue)}
+                  isLast={isLast}
+                  label={descriptor.label}
+                  onSelect={(choiceId) => session.applyOptionChange(descriptor.id, choiceId)}
+                  value={currentValue}
+                />
+              ) : (
+                <DisclosureRow
+                  isLast={isLast}
+                  label={descriptor.label}
+                  onPress={() => props.onOpenSubmenu({ kind: "descriptor", id: descriptor.id })}
+                  value={getProviderOptionCurrentLabel(descriptor)}
+                />
+              )}
             </Animated.View>
           );
         })}
-        <Animated.View layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}>
-          <DisclosureRow
-            isLast
-            label="Runtime"
-            value={
-              RUNTIME_MODE_CHOICES.find((choice) => choice.mode === session.runtimeMode)?.label
-            }
-            onPress={() => props.onOpenSubmenu({ kind: "runtime" })}
-          />
-        </Animated.View>
       </Animated.View>
 
-      {Platform.OS !== "ios" && session.hasLegacyModels ? (
-        <>
-          <Text className="px-5 pb-2 pt-7 text-sm font-t3-medium text-foreground-muted">
-            Catalog
-          </Text>
-          <View className="mx-4 overflow-hidden rounded-[20px] bg-card">
-            <SwitchRow
-              isLast
-              label="Legacy models"
-              onValueChange={session.setShowLegacy}
-              value={session.showLegacy}
-            />
-          </View>
-        </>
-      ) : null}
-    </View>
+      <SectionLabel className="pt-7" title="Permissions" />
+      <View className="mx-4 overflow-hidden rounded-[20px] bg-card">
+        <DisclosureRow
+          description={runtimeChoice?.description}
+          isLast
+          label={runtimeChoice?.label ?? "Runtime"}
+          onPress={() => props.onOpenSubmenu({ kind: "runtime" })}
+        />
+      </View>
+
+      <Text className="px-5 pt-3 text-2xs leading-4 text-foreground-tertiary">
+        Applies to this thread. Changes take effect on your next message.
+      </Text>
+    </ScrollView>
   );
 }
 
-/** One native scroll owner for the model catalog and its related settings. */
-function ThreadSettingsMainContent(props: {
-  readonly onOpenSubmenu: (submenu: ThreadSettingsSubmenuPage) => void;
-}) {
+/** One native scroll owner for the model catalog. */
+function ThreadSettingsCatalogContent(props: { readonly onSelected: () => void }) {
+  const insets = useSafeAreaInsets();
   const session = useThreadSettingsSession();
   const catalogItems = useThreadSettingsCatalogItems(session);
   const [animationsReady, setAnimationsReady] = useState(false);
@@ -748,13 +915,15 @@ function ThreadSettingsMainContent(props: {
   const hasActiveCatalogFilter =
     session.providerFilter !== null || session.searchQuery.trim().length > 0;
   const usesTransparentNativeHeader = Platform.OS === "ios" && NATIVE_LIQUID_GLASS_SUPPORTED;
+  const bottomToolbarInset =
+    Platform.OS === "ios" && NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED
+      ? NATIVE_MAIL_SEARCH_TOOLBAR_CONTENT_INSET
+      : 0;
   const listItems = useMemo<ReadonlyArray<ThreadSettingsCatalogItem>>(
-    () => [
-      ...(catalogItems.length === 0 && hasActiveCatalogFilter
-        ? ([{ kind: "empty", key: "empty" }] as const)
-        : catalogItems),
-      { kind: "options", key: "options" },
-    ],
+    () =>
+      catalogItems.length === 0 && hasActiveCatalogFilter
+        ? [{ kind: "empty", key: "empty" }]
+        : catalogItems,
     [catalogItems, hasActiveCatalogFilter],
   );
   const renderCatalogItem = useCallback(
@@ -769,21 +938,15 @@ function ThreadSettingsMainContent(props: {
           <ThreadSettingsModelListRow
             isFirst={item.isFirst}
             isLast={item.isLast}
+            onSelected={props.onSelected}
             option={item.option}
           />
         );
-      } else if (item.kind === "empty") {
+      } else {
         content = (
           <View className="items-center px-8 py-14">
             <Text className="text-center text-sm text-foreground-muted">No matching models</Text>
           </View>
-        );
-      } else {
-        content = (
-          <ThreadSettingsOptionsItem
-            animationsReady={animationsReady}
-            onOpenSubmenu={props.onOpenSubmenu}
-          />
         );
       }
 
@@ -797,7 +960,7 @@ function ThreadSettingsMainContent(props: {
         </Animated.View>
       );
     },
-    [animationsReady, props.onOpenSubmenu],
+    [animationsReady, props.onSelected],
   );
 
   return (
@@ -807,7 +970,7 @@ function ThreadSettingsMainContent(props: {
       contentContainerStyle={{ paddingTop: 4 }}
       contentInsetAdjustmentBehavior={usesTransparentNativeHeader ? "never" : "automatic"}
       data={listItems}
-      estimatedItemSize={48}
+      estimatedItemSize={56}
       extraData={animationsReady}
       getItemType={(item) => item.kind}
       itemLayoutAnimation={THREAD_SETTINGS_CATALOG_LAYOUT_TRANSITION}
@@ -832,7 +995,28 @@ function ThreadSettingsMainContent(props: {
               />
             </View>
           ) : null}
+          <View className="pb-1 pt-1">
+            <ProviderFilterChips />
+          </View>
         </>
+      }
+      ListFooterComponent={
+        <View style={{ paddingBottom: insets.bottom + bottomToolbarInset + 12 }}>
+          {session.hasLegacyModels ? (
+            <>
+              <SectionLabel className="pt-6" title="Catalog" />
+              <View className="mx-4 overflow-hidden rounded-[20px] bg-card">
+                <SwitchRow
+                  description="Older models, hidden by default."
+                  isLast
+                  label="Legacy models"
+                  onValueChange={session.setShowLegacy}
+                  value={session.showLegacy}
+                />
+              </View>
+            </>
+          ) : null}
+        </View>
       }
       recycleItems
       onLoad={() => setAnimationsReady(true)}
@@ -853,7 +1037,7 @@ function ThreadSettingsChoiceContent(props: {
 
   const activeDescriptor =
     descriptorId !== null
-      ? session.displayedDescriptors.find(
+      ? session.optionDescriptors.find(
           (descriptor) => descriptor.type === "select" && descriptor.id === descriptorId,
         )
       : undefined;
@@ -878,7 +1062,7 @@ function ThreadSettingsChoiceContent(props: {
             rows: selectableChoices(activeDescriptor).map((choice) => ({
               id: choice.id,
               label: choice.label,
-              description: undefined,
+              description: choice.description,
               selected: choice.id === getProviderOptionCurrentValue(activeDescriptor),
               onPress: () => {
                 void hapticSelection();
@@ -921,6 +1105,7 @@ function ThreadSettingsChoiceContent(props: {
 }
 
 type ThreadSettingsPickerStackParams = {
+  ThreadSettingsSummary: undefined;
   ThreadSettingsModels: undefined;
   ThreadSettingsChoice: ThreadSettingsSubmenuPage & { readonly title: string };
 };
@@ -943,52 +1128,22 @@ function useThreadSettingsPickerPresentation() {
   return value;
 }
 
-function ThreadSettingsModelsScreen() {
+function ThreadSettingsSummaryScreen() {
   const session = useThreadSettingsSession();
   const presentation = useThreadSettingsPickerPresentation();
   const navigation = useNavigation<NativeStackNavigationProp<ThreadSettingsPickerStackParams>>();
-  const usesNativeMailSearchToolbar = Platform.OS === "ios" && NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED;
-  const hasCustomCatalogFilter = session.providerFilter !== null || session.showLegacy;
-  const commitAndClose = useCallback(() => {
-    session.commitPendingModel();
-    presentation.onClose();
-  }, [presentation, session]);
-  const filterMenu = useMemo(
-    () => ({
-      title: "Model filters",
-      items: [
-        {
-          type: "submenu" as const,
-          title: "Provider",
-          items: [
-            {
-              type: "action" as const,
-              title: "All providers",
-              state: session.providerFilter === null ? ("on" as const) : ("off" as const),
-              onPress: () => session.setProviderFilter(null),
-            },
-            ...session.providerGroups.map((group) => ({
-              type: "action" as const,
-              title: group.providerLabel,
-              state:
-                session.providerFilter === group.providerKey ? ("on" as const) : ("off" as const),
-              onPress: () => session.setProviderFilter(group.providerKey),
-            })),
-          ],
-        },
-        ...(session.hasLegacyModels
-          ? [
-              {
-                type: "action" as const,
-                title: "Show legacy models",
-                state: session.showLegacy ? ("on" as const) : ("off" as const),
-                onPress: () => session.setShowLegacy(!session.showLegacy),
-              },
-            ]
-          : []),
-      ],
-    }),
-    [session],
+
+  const openSubmenu = useCallback(
+    (submenu: ThreadSettingsSubmenuPage) => {
+      const title =
+        submenu.kind === "runtime"
+          ? "Permissions"
+          : (session.optionDescriptors.find(
+              (descriptor) => descriptor.type === "select" && descriptor.id === submenu.id,
+            )?.label ?? "Option");
+      navigation.navigate("ThreadSettingsChoice", { ...submenu, title });
+    },
+    [navigation, session.optionDescriptors],
   );
 
   return (
@@ -997,30 +1152,48 @@ function ThreadSettingsModelsScreen() {
         <AndroidScreenHeader
           actions={[
             {
-              accessibilityLabel: session.pendingModel ? "Save thread settings" : "Done",
+              accessibilityLabel: "Done",
               icon: "checkmark",
-              onPress: commitAndClose,
+              onPress: presentation.onClose,
             },
           ]}
           onBack={presentation.onClose}
           title="Thread settings"
         />
       ) : null}
+      <NativeStackScreenOptions options={{ headerShown: Platform.OS !== "android" }} />
+      <ThreadSettingsSummaryContent
+        onOpenCatalog={() => navigation.navigate("ThreadSettingsModels")}
+        onOpenSubmenu={openSubmenu}
+      />
+      <NativeHeaderToolbar placement="right">
+        <NativeHeaderToolbar.Button
+          accessibilityLabel="Done"
+          label="Done"
+          onPress={presentation.onClose}
+        />
+      </NativeHeaderToolbar>
+    </>
+  );
+}
+
+function ThreadSettingsModelsScreen() {
+  const session = useThreadSettingsSession();
+  const navigation = useNavigation<NativeStackNavigationProp<ThreadSettingsPickerStackParams>>();
+  const usesNativeMailSearchToolbar = Platform.OS === "ios" && NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED;
+  const closeCatalog = useCallback(() => navigation.goBack(), [navigation]);
+
+  return (
+    <>
+      {Platform.OS === "android" ? (
+        <AndroidScreenHeader onBack={closeCatalog} title="Change model" />
+      ) : null}
       <NativeStackScreenOptions
-        optionsVersion={[
-          session.providerFilter,
-          session.providerGroups.map((group) => group.providerKey),
-          session.showLegacy,
-        ]}
+        optionsVersion={[session.providerGroups.map((group) => group.providerKey)]}
         options={{
           unstable_headerToolbarItems: usesNativeMailSearchToolbar
             ? () => [
                 createNativeMailSearchToolbarItem({
-                  filterButtonId: "thread-settings-model-filter",
-                  filterMenu,
-                  filterSystemImageName: hasCustomCatalogFilter
-                    ? "line.3.horizontal.decrease.circle.fill"
-                    : "line.3.horizontal.decrease",
                   onSearchTextChange: session.setSearchQuery,
                   placeholder: "Find a model",
                   searchTextChangeId: "thread-settings-model-search-text",
@@ -1042,72 +1215,7 @@ function ThreadSettingsModelsScreen() {
               : undefined,
         }}
       />
-      <ThreadSettingsMainContent
-        onOpenSubmenu={(submenu) => {
-          const title =
-            submenu.kind === "runtime"
-              ? "Runtime"
-              : (session.displayedDescriptors.find(
-                  (descriptor) => descriptor.type === "select" && descriptor.id === submenu.id,
-                )?.label ?? "Option");
-          navigation.navigate("ThreadSettingsChoice", { ...submenu, title });
-        }}
-      />
-      <NativeHeaderToolbar placement="left">
-        <NativeHeaderToolbar.Button
-          accessibilityLabel="Cancel thread settings"
-          label="Cancel"
-          onPress={presentation.onClose}
-        />
-      </NativeHeaderToolbar>
-      <NativeHeaderToolbar placement="right">
-        <NativeHeaderToolbar.Button
-          accessibilityLabel={session.pendingModel ? "Save thread settings" : "Done"}
-          label={session.pendingModel ? "Save" : "Done"}
-          onPress={commitAndClose}
-        />
-      </NativeHeaderToolbar>
-      {Platform.OS === "ios" && !usesNativeMailSearchToolbar ? (
-        <NativeHeaderToolbar placement="bottom">
-          <NativeHeaderToolbar.Menu
-            accessibilityLabel="Filter models"
-            icon={
-              hasCustomCatalogFilter
-                ? "line.3.horizontal.decrease.circle.fill"
-                : "line.3.horizontal.decrease.circle"
-            }
-            separateBackground
-            title="Model filters"
-          >
-            <NativeHeaderToolbar.Menu title="Provider">
-              <NativeHeaderToolbar.Label>Provider</NativeHeaderToolbar.Label>
-              <NativeHeaderToolbar.MenuAction
-                isOn={session.providerFilter === null}
-                onPress={() => session.setProviderFilter(null)}
-              >
-                All providers
-              </NativeHeaderToolbar.MenuAction>
-              {session.providerGroups.map((group) => (
-                <NativeHeaderToolbar.MenuAction
-                  key={group.providerKey}
-                  isOn={session.providerFilter === group.providerKey}
-                  onPress={() => session.setProviderFilter(group.providerKey)}
-                >
-                  {group.providerLabel}
-                </NativeHeaderToolbar.MenuAction>
-              ))}
-            </NativeHeaderToolbar.Menu>
-            {session.hasLegacyModels ? (
-              <NativeHeaderToolbar.MenuAction
-                isOn={session.showLegacy}
-                onPress={() => session.setShowLegacy(!session.showLegacy)}
-              >
-                Show legacy models
-              </NativeHeaderToolbar.MenuAction>
-            ) : null}
-          </NativeHeaderToolbar.Menu>
-        </NativeHeaderToolbar>
-      ) : null}
+      <ThreadSettingsCatalogContent onSelected={closeCatalog} />
     </>
   );
 }
@@ -1140,7 +1248,7 @@ function ThreadSettingsPickerNavigator(props: ThreadSettingsPickerPresentation) 
   return (
     <ThreadSettingsPickerPresentationContext.Provider value={presentation}>
       <ThreadSettingsPickerStack.Navigator
-        initialRouteName="ThreadSettingsModels"
+        initialRouteName="ThreadSettingsSummary"
         screenOptions={{
           animation: "slide_from_right",
           contentStyle: { backgroundColor: solidSheetBackground },
@@ -1160,9 +1268,14 @@ function ThreadSettingsPickerNavigator(props: ThreadSettingsPickerPresentation) 
         }}
       >
         <ThreadSettingsPickerStack.Screen
+          name="ThreadSettingsSummary"
+          component={ThreadSettingsSummaryScreen}
+          options={{ headerBackVisible: false, title: "Thread settings" }}
+        />
+        <ThreadSettingsPickerStack.Screen
           name="ThreadSettingsModels"
           component={ThreadSettingsModelsScreen}
-          options={{ headerBackVisible: false, title: "Thread settings" }}
+          options={{ title: "Change model" }}
         />
         <ThreadSettingsPickerStack.Screen
           name="ThreadSettingsChoice"
@@ -1204,7 +1317,8 @@ export function ExistingThreadSettingsRouteScreen() {
 /**
  * Native stack hosted by the New Task navigator's form-sheet route. Keeping
  * the sheet presentation in RNS gives UIKit ownership of nested dismissal,
- * while Reasoning and Runtime remain regular pushes inside this navigator.
+ * while the catalog and the choice pages remain regular pushes inside this
+ * navigator.
  */
 export function NewTaskThreadSettingsRouteScreen() {
   const flow = useNewTaskFlow();
