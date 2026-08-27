@@ -187,3 +187,12 @@ export function groupByProvider(options: ReadonlyArray<ModelOption>): ReadonlyAr
     models: group.models,
   }));
 }
+
+/**
+ * Composer pills are narrow and the provider icon already names the vendor, so
+ * the vendor prefix only steals width: "Claude Opus 5" reads as "Opus 5".
+ * Names that carry no vendor prefix, like "GPT-5.1 Codex", pass through.
+ */
+export function compactModelLabel(label: string): string {
+  return label.replace(/^(?:Claude|Anthropic)\s+/i, "");
+}

@@ -4,6 +4,7 @@ import { ProviderInstanceId, type ServerConfig } from "@t3tools/contracts";
 
 import {
   buildModelOptions,
+  compactModelLabel,
   groupByProvider,
   resolveDefaultableModelSelection,
   resolveSelectableModelSelection,
@@ -170,5 +171,11 @@ describe("mobile model options", () => {
     expect(resolveDefaultableModelSelection(config, legacy)).toBeNull();
     // Offline: nothing to validate against, selection passes through.
     expect(resolveDefaultableModelSelection(null, legacy)).toBe(legacy);
+  });
+
+  it("drops the vendor prefix from composer pill labels", () => {
+    expect(compactModelLabel("Claude Opus 5")).toBe("Opus 5");
+    expect(compactModelLabel("Claude Fable 5")).toBe("Fable 5");
+    expect(compactModelLabel("GPT-5.1 Codex")).toBe("GPT-5.1 Codex");
   });
 });
