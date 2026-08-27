@@ -25,6 +25,7 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import ImageViewing from "react-native-image-viewing";
 import Animated, {
   FadeIn,
@@ -32,6 +33,10 @@ import Animated, {
   FadeOut,
   FadeOutDown,
   LinearTransition,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
 } from "react-native-reanimated";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { themeColorWithAlpha } from "../../lib/mobileTheme";
@@ -56,6 +61,7 @@ import { ControlPill } from "../../components/ControlPill";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import { buildModelOptions, compactModelLabel, groupByProvider } from "../../lib/modelOptions";
+import { CONNECTION_STATUS_DELAY_MS, useDelayedFlag } from "../../lib/useDelayedFlag";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import type { RemoteClientConnectionState } from "../../lib/connection";
@@ -67,6 +73,7 @@ import {
 import { reasoningValueLabel, resolveProviderOptionDescriptors } from "../../lib/providerOptions";
 import { useComposerPathSearch } from "../../state/use-composer-path-search";
 import { ComposerCommandPopover, type ComposerCommandItem } from "./ComposerCommandPopover";
+import { composerConnectionStatus } from "./composer-connection-status";
 import { matchesSlashSkillQuery } from "./composerSlashSkillSearch";
 import {
   type ExistingThreadSettingsRouteSession,
@@ -98,12 +105,6 @@ export interface ThreadComposerProps {
   readonly connectionState: RemoteClientConnectionState;
   readonly connectionError: string | null;
   readonly environmentLabel: string | null;
-  /**
-   * Message sync phase for the selected thread (drives the status pill):
-   * "loading" = first fetch, nothing to show yet; "syncing" = cached messages
-   * are on screen while they reconcile with the server.
-   */
-  readonly threadSyncPhase?: "loading" | "syncing" | null;
   readonly selectedThread: OrchestrationThreadShell;
   readonly serverConfig: T3ServerConfig | null;
   readonly queueCount: number;
@@ -190,88 +191,114 @@ export function ComposerSurface(props: {
   );
 }
 
-type ComposerStatusPillState = {
-  readonly kind: "unavailable" | "reconnecting" | "syncing";
+/** Downward drag past this point sends the blocked-connection card away. */
+const DISMISS_DRAG_DISTANCE = 28;
+
+/**
+ * Tier 1: the client is fixing this by itself, so the status is a line of text
+ * over the backdrop gradient — no surface, no shadow, no hit target.
+ */
+const ComposerRetryingStatus = memo(function ComposerRetryingStatus(props: {
   readonly label: string;
-};
-
-function composerConnectionStatus(input: {
-  readonly connectionError: string | null;
-  readonly connectionState: RemoteClientConnectionState;
-  readonly environmentLabel: string | null;
-  readonly threadSyncPhase?: "loading" | "syncing" | null;
-}): ComposerStatusPillState | null {
-  const environmentLabel = input.environmentLabel ?? "Environment";
-
-  switch (input.connectionState) {
-    case "connecting":
-    case "reconnecting":
-      return {
-        kind: "reconnecting",
-        label:
-          input.connectionError === null
-            ? `Reconnecting to ${environmentLabel}...`
-            : `Failed to connect. Retrying ${environmentLabel}...`,
-      };
-    case "offline":
-      return { kind: "unavailable", label: "You are offline" };
-    case "error":
-      return {
-        kind: "unavailable",
-        label: input.connectionError
-          ? `Failed to connect to ${environmentLabel}: ${input.connectionError}`
-          : `Failed to connect to ${environmentLabel}`,
-      };
-    case "available":
-      return { kind: "unavailable", label: `${environmentLabel} is not connected` };
-    case "connected":
-      break;
-  }
-
-  // Connected: the pill is the single loading/sync indicator. One stable
-  // label per open — "Loading" when starting from scratch, "Syncing" when
-  // cached messages are already visible.
-  switch (input.threadSyncPhase) {
-    case "loading":
-      return { kind: "syncing", label: "Loading messages..." };
-    case "syncing":
-      return { kind: "syncing", label: "Syncing messages..." };
-    default:
-      return null;
-  }
-}
-
-const ComposerConnectionStatusPill = memo(function ComposerConnectionStatusPill(props: {
-  readonly onPress: () => void;
-  readonly status: ComposerStatusPillState;
 }) {
-  const isReconnecting = props.status.kind !== "unavailable";
-  const indicatorColor = useThemeColor("--color-icon-muted");
+  const indicatorColor = useThemeColor("--color-icon-subtle");
 
   return (
     <Animated.View
-      className="absolute inset-x-0 bottom-full items-center pb-2"
+      className="absolute inset-x-0 bottom-full flex-row items-center justify-center gap-1.5 pb-2"
+      entering={FadeIn.duration(180)}
+      exiting={FadeOut.duration(140)}
+      pointerEvents="none"
+    >
+      {/* ActivityIndicator has no size below "small" (20pt) on iOS; scaling is
+          the only way to sit it next to 13pt text without dwarfing it. */}
+      <ActivityIndicator
+        size="small"
+        color={indicatorColor}
+        style={{ transform: [{ scale: 0.72 }] }}
+      />
+      <Text className="max-w-[280px] text-xs text-foreground-muted" numberOfLines={1}>
+        {props.label}
+      </Text>
+    </Animated.View>
+  );
+});
+
+/**
+ * Tier 2: nothing sends until this clears, so it keeps a card — one that
+ * carries the retry action the old status pill hid behind an unmarked tap, and
+ * a drag handle for pushing it out of the way.
+ */
+const ComposerBlockedStatus = memo(function ComposerBlockedStatus(props: {
+  readonly detail: string;
+  readonly onDismiss: () => void;
+  readonly onRetry: () => void;
+  readonly title: string;
+}) {
+  const { onDismiss } = props;
+  const translateY = useSharedValue(0);
+  const dismiss = useCallback(() => {
+    translateY.value = 0;
+    onDismiss();
+  }, [onDismiss, translateY]);
+
+  const swipeAway = useMemo(
+    () =>
+      Gesture.Pan()
+        .onUpdate((event) => {
+          translateY.value = Math.max(0, event.translationY);
+        })
+        .onEnd((event) => {
+          if (event.translationY > DISMISS_DRAG_DISTANCE) {
+            runOnJS(dismiss)();
+            return;
+          }
+          translateY.value = withTiming(0, { duration: 140 });
+        }),
+    [dismiss, translateY],
+  );
+
+  const dragStyle = useAnimatedStyle(() => ({
+    opacity: 1 - Math.min(1, translateY.value / (DISMISS_DRAG_DISTANCE * 2)),
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  return (
+    <Animated.View
+      className="absolute inset-x-0 bottom-full pb-2"
       entering={FadeInDown.duration(180)}
       exiting={FadeOutDown.duration(140)}
       pointerEvents="box-none"
     >
-      <Pressable
-        accessibilityRole="button"
-        onPress={props.onPress}
-        className="max-w-full flex-row items-center gap-2 rounded-full bg-card px-3 py-2 shadow-sm active:opacity-70"
-      >
-        {isReconnecting ? (
-          <ActivityIndicator size="small" color={indicatorColor} />
-        ) : (
-          <View className="h-2 w-2 rounded-full bg-red-500" />
-        )}
-        <Text
-          className="max-w-[260px] text-sm font-t3-bold leading-snug text-foreground"
-          numberOfLines={1}
+      <GestureDetector gesture={swipeAway}>
+        <Animated.View
+          className="gap-2 rounded-[20px] border border-danger-border bg-danger px-3.5 pb-2.5 pt-2"
+          style={dragStyle}
         >
-          {props.status.label}
-        </Text>
-      </Pressable>
+          <View
+            accessibilityElementsHidden
+            className="h-1 w-8 self-center rounded-full bg-subtle-strong"
+            importantForAccessibility="no-hide-descendants"
+          />
+          <View className="flex-row items-center gap-3">
+            <View className="min-w-0 flex-1">
+              <Text className="text-sm font-t3-bold text-foreground" numberOfLines={1}>
+                {props.title}
+              </Text>
+              <Text className="mt-0.5 text-xs text-danger-foreground" numberOfLines={2}>
+                {props.detail}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              className="rounded-full bg-subtle-strong px-3.5 py-2 active:opacity-70"
+              onPress={props.onRetry}
+            >
+              <Text className="text-xs font-t3-bold text-foreground">Retry</Text>
+            </Pressable>
+          </View>
+        </Animated.View>
+      </GestureDetector>
     </Animated.View>
   );
 });
@@ -348,8 +375,29 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     connectionError: props.connectionError,
     connectionState: props.connectionState,
     environmentLabel: props.environmentLabel,
-    threadSyncPhase: props.threadSyncPhase,
   });
+  // Nothing surfaces until the state has held: the common reconnect resolves
+  // inside the delay and never paints anything at all.
+  const showConnectionStatus = useDelayedFlag(
+    connectionStatus !== null,
+    CONNECTION_STATUS_DELAY_MS,
+  );
+  // A dismissal is scoped to the state the user dismissed. Any change — a new
+  // failure, a recovery, a different environment — brings the card back, so
+  // hiding it can never strand someone on a silently dead connection.
+  const [dismissedStatusTitle, setDismissedStatusTitle] = useState<string | null>(null);
+  const blockedTitle = connectionStatus?.kind === "blocked" ? connectionStatus.title : null;
+  const dismissBlockedStatus = useCallback(
+    () => setDismissedStatusTitle(blockedTitle),
+    [blockedTitle],
+  );
+  useEffect(() => {
+    // Recovery clears the dismissal, so the same failure recurring after a
+    // successful reconnect is announced again rather than swallowed.
+    if (blockedTitle === null) {
+      setDismissedStatusTitle(null);
+    }
+  }, [blockedTitle]);
   const toolbarSurface = String(useThemeColor("--color-card"));
   const backdropSurface = String(useThemeColor("--color-screen"));
   const toolbarFadeOpaque = themeColorWithAlpha(toolbarSurface, 0.95);
@@ -761,10 +809,18 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           </View>
         ) : null}
 
-        {connectionStatus ? (
-          <ComposerConnectionStatusPill
-            status={connectionStatus}
-            onPress={props.onReconnectEnvironment}
+        {showConnectionStatus && connectionStatus?.kind === "retrying" ? (
+          <ComposerRetryingStatus label={connectionStatus.label} />
+        ) : null}
+
+        {showConnectionStatus &&
+        connectionStatus?.kind === "blocked" &&
+        connectionStatus.title !== dismissedStatusTitle ? (
+          <ComposerBlockedStatus
+            detail={connectionStatus.detail}
+            onDismiss={dismissBlockedStatus}
+            onRetry={props.onReconnectEnvironment}
+            title={connectionStatus.title}
           />
         ) : null}
 

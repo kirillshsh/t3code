@@ -51,6 +51,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ControlPill } from "../../components/ControlPill";
+import { LoadingStrip } from "../../components/LoadingStrip";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import type { ComposerEditorHandle } from "../../components/ComposerEditor";
 import type { StatusTone } from "../../components/StatusPill";
@@ -99,7 +100,7 @@ export interface ThreadDetailScreenProps {
   readonly draftMessage: string;
   readonly draftAttachments: ReadonlyArray<DraftComposerImageAttachment>;
   readonly connectionStateLabel: EnvironmentConnectionPhase;
-  /** Message sync status for the selected thread (drives the composer status pill). */
+  /** Message sync status for the selected thread (drives the sync hairline). */
   readonly threadSyncStatus?: EnvironmentThreadStatus;
   /** Non-null when older turns exist beyond the loaded window. */
   readonly loadEarlier?: { readonly loading: boolean; readonly onLoadEarlier: () => void } | null;
@@ -258,19 +259,17 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     : Math.max(insets.bottom, 12);
   const contentPresentationKind = props.contentPresentation.kind;
   // The raw sync status enters "synchronizing" on every full fetch, cached or
-  // not. Whether messages are already on screen decides the pill label: no
-  // data yet → "Loading messages", cached data reconciling → "Syncing".
-  const threadSyncPhase = (() => {
+  // not. Either way the thread is reconciling with the server, which is worth
+  // a hairline under the header and nothing louder — most syncs are over
+  // before the eye reaches the bottom of the screen.
+  const isSyncingThread = (() => {
     switch (props.threadSyncStatus) {
       case "empty":
       case "cached":
       case "synchronizing":
-        if (contentPresentationKind === "ready") {
-          return "syncing" as const;
-        }
-        return contentPresentationKind === "loading" ? ("loading" as const) : null;
+        return contentPresentationKind === "ready" || contentPresentationKind === "loading";
       default:
-        return null;
+        return false;
     }
   })();
   const selectedThreadFeed = props.selectedThreadFeed;
@@ -581,6 +580,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   return (
     <View className="flex-1">
+      {isSyncingThread ? <LoadingStrip /> : null}
       {showContent ? (
         <View
           className="flex-1"
@@ -732,7 +732,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 connectionState={props.connectionStateLabel}
                 connectionError={props.connectionError}
                 environmentLabel={props.environmentLabel}
-                threadSyncPhase={threadSyncPhase}
                 selectedThread={props.selectedThread}
                 serverConfig={props.serverConfig}
                 queueCount={props.selectedThreadQueueCount}

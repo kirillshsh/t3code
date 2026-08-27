@@ -2,12 +2,13 @@ import type {
   NativeStackHeaderItem,
   NativeStackNavigationOptions,
 } from "@react-navigation/native-stack";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, View } from "react-native";
 
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { brandTitleOffset, CompactBrandTitle } from "../../components/CompactBrandTitle";
+import { CONNECTION_STATUS_DELAY_MS, useDelayedFlag } from "../../lib/useDelayedFlag";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { useWorkspaceState } from "../../state/workspace";
@@ -16,32 +17,17 @@ import {
   type WorkspaceConnectionStatusPresentation,
 } from "./workspace-connection-status";
 
-/**
- * Delay before a connection interruption surfaces in the title slot. Sub-second
- * blips (the common reconnect case) resolve without any UI at all.
- */
-const STATUS_SHOW_DELAY_MS = 800;
 const FADE_IN_MS = 250;
 
 /**
  * Connection status presentation, debounced for display: null until the
- * workspace has been in a non-connected state for STATUS_SHOW_DELAY_MS,
+ * workspace has been in a non-connected state for CONNECTION_STATUS_DELAY_MS,
  * then live-updating until the workspace reconnects (null again immediately).
  */
 function useDelayedConnectionStatus(): WorkspaceConnectionStatusPresentation | null {
   const { state } = useWorkspaceState();
   const presentation = workspaceConnectionStatusPresentation(state);
-  const hasStatus = presentation !== null;
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    if (!hasStatus) {
-      setVisible(false);
-      return;
-    }
-    const timer = setTimeout(() => setVisible(true), STATUS_SHOW_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [hasStatus]);
+  const visible = useDelayedFlag(presentation !== null, CONNECTION_STATUS_DELAY_MS);
 
   return visible ? presentation : null;
 }
