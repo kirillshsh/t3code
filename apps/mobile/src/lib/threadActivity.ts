@@ -116,6 +116,8 @@ export type ThreadFeedEntry =
       readonly type: "working";
       readonly id: string;
       readonly createdAt: string;
+      /** The send is still local: no server frame has landed for it yet. */
+      readonly pending: boolean;
     }
   | {
       readonly type: "activity-group";
@@ -1273,6 +1275,7 @@ export function deriveThreadFeedPresentation(
   expandedTurnIds: ReadonlySet<TurnId>,
   expandedWorkGroupIds: ReadonlySet<string> = new Set(),
   activeWorkStartedAt: string | null = null,
+  activeWorkPending = false,
 ): ThreadFeedEntry[] {
   const sourceFeed = feed.filter(
     (entry) =>
@@ -1310,9 +1313,54 @@ export function deriveThreadFeedPresentation(
       type: "working",
       id: "working-indicator-row",
       createdAt: activeWorkStartedAt,
+      pending: activeWorkPending,
     });
   }
   return result;
+}
+
+/** The turn state a send was fired against, so a later frame can be told apart from it. */
+export interface PendingSendSnapshot {
+  readonly threadKey: string;
+  readonly startedAt: string;
+  readonly latestTurnId: TurnId | null;
+  readonly latestTurnStartedAt: string | null;
+  readonly latestTurnCompletedAt: string | null;
+}
+
+export function makePendingSendSnapshot(input: {
+  readonly threadKey: string;
+  readonly startedAt: string;
+  readonly latestTurn: ThreadFeedLatestTurn | null;
+}): PendingSendSnapshot {
+  return {
+    threadKey: input.threadKey,
+    startedAt: input.startedAt,
+    latestTurnId: input.latestTurn?.turnId ?? null,
+    latestTurnStartedAt: input.latestTurn?.startedAt ?? null,
+    latestTurnCompletedAt: input.latestTurn?.completedAt ?? null,
+  };
+}
+
+/**
+ * Keeps the local send marker alive until the server says anything about it — a
+ * new turn, a restarted one, a finished one. The round trip plus provider start
+ * is a second or three, and without the marker the feed shows nothing at all in
+ * that window.
+ */
+export function resolveOptimisticSendStartedAt(
+  pendingSend: PendingSendSnapshot | null,
+  threadKey: string | null,
+  latestTurn: ThreadFeedLatestTurn | null,
+): string | null {
+  if (pendingSend === null || pendingSend.threadKey !== threadKey) {
+    return null;
+  }
+  const acknowledged =
+    (latestTurn?.turnId ?? null) !== pendingSend.latestTurnId ||
+    (latestTurn?.startedAt ?? null) !== pendingSend.latestTurnStartedAt ||
+    (latestTurn?.completedAt ?? null) !== pendingSend.latestTurnCompletedAt;
+  return acknowledged ? null : pendingSend.startedAt;
 }
 
 function appendPresentedFeedEntry(

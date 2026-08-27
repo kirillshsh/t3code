@@ -31,7 +31,12 @@ import {
 import type { DraftComposerImageAttachment } from "../lib/composerImages";
 import { scopedThreadKey } from "../lib/scopedEntities";
 import { copyTextWithHaptic } from "../lib/copyTextWithHaptic";
-import { buildThreadFeed } from "../lib/threadActivity";
+import {
+  buildThreadFeed,
+  makePendingSendSnapshot,
+  resolveOptimisticSendStartedAt,
+  type PendingSendSnapshot,
+} from "../lib/threadActivity";
 import { appAtomRegistry } from "../state/atom-registry";
 import {
   appendComposerDraftAttachments,
@@ -145,6 +150,19 @@ export function useThreadComposerState() {
     };
   }, [selectedThreadDetail, selectedThreadShell]);
 
+  // Local marker for the send that has not come back from the server yet: the
+  // feed shows "Sending" off it, and drops it the moment a turn frame lands.
+  const [pendingSend, setPendingSend] = useState<PendingSendSnapshot | null>(null);
+  const sendStartedAt = useMemo(
+    () =>
+      resolveOptimisticSendStartedAt(
+        pendingSend,
+        selectedThreadKey,
+        selectedThread?.latestTurn ?? null,
+      ),
+    [pendingSend, selectedThread?.latestTurn, selectedThreadKey],
+  );
+
   const activeWorkStartedAt = useMemo(() => {
     const selectedThread = selectedThreadDetail ?? selectedThreadShell;
     if (!selectedThread) {
@@ -154,9 +172,10 @@ export function useThreadComposerState() {
     return deriveActiveWorkStartedAt(
       selectedThread.latestTurn,
       selectedThreadSessionActivity,
-      null,
+      sendStartedAt,
     );
-  }, [selectedThreadDetail, selectedThreadSessionActivity, selectedThreadShell]);
+  }, [selectedThreadDetail, selectedThreadSessionActivity, selectedThreadShell, sendStartedAt]);
+  const activeWorkPending = activeWorkStartedAt !== null && activeWorkStartedAt === sendStartedAt;
 
   const onSendMessage = useCallback(async () => {
     if (!selectedThreadShell) {
@@ -238,6 +257,13 @@ export function useThreadComposerState() {
 
     const metadata = makeQueuedMessageMetadata();
     const messageId = MessageId.make(metadata.messageId);
+    setPendingSend(
+      makePendingSendSnapshot({
+        threadKey,
+        startedAt: metadata.createdAt,
+        latestTurn: thread.latestTurn,
+      }),
+    );
     // Enqueue publishes the queued atom synchronously (the durable write
     // happens behind it), so clearing the draft here gives send feedback on
     // the tap frame instead of after file I/O. If the write fails the message
@@ -263,6 +289,7 @@ export function useThreadComposerState() {
       // the user attached new ones while the write was in flight.
       void mergeComposerDraftContent(threadKey, { text, attachments: [] });
       appendComposerDraftAttachments(threadKey, attachments);
+      setPendingSend(null);
       setPendingConnectionError(
         error instanceof Error ? error.message : "Failed to save the queued message.",
       );
@@ -397,6 +424,7 @@ export function useThreadComposerState() {
     selectedThreadFeed,
     selectedThreadQueueCount,
     activeWorkStartedAt,
+    activeWorkPending,
     draftMessage,
     draftAttachments,
     modelSelection,

@@ -18,6 +18,8 @@ import {
   derivePendingApprovals,
   deriveThreadFeedPresentation,
   isPendingUserInputOptionSelected,
+  makePendingSendSnapshot,
+  resolveOptimisticSendStartedAt,
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
   type ThreadFeedActivity,
@@ -747,6 +749,7 @@ describe("buildThreadFeed", () => {
         type: "working",
         id: "working-indicator-row",
         createdAt: startedAt,
+        pending: false,
       },
     ]);
     expect(deriveThreadFeedPresentation(presented, null, new Set())).toEqual([]);
@@ -841,5 +844,55 @@ describe("quiet timeline: nested agents", () => {
     );
     expect(ids).toContain("nested-done");
     expect(ids).not.toContain("shell-done");
+  });
+});
+
+describe("optimistic send state", () => {
+  const settledTurn = {
+    turnId: TurnId.make("turn-1"),
+    state: "completed" as const,
+    startedAt: "2026-08-27T09:59:00.000Z",
+    completedAt: "2026-08-27T09:59:30.000Z",
+  };
+  const snapshot = makePendingSendSnapshot({
+    threadKey: "env-1:thread-1",
+    startedAt: "2026-08-27T10:00:00.000Z",
+    latestTurn: settledTurn,
+  });
+
+  it("keeps the local marker until a turn frame lands", () => {
+    expect(resolveOptimisticSendStartedAt(snapshot, "env-1:thread-1", settledTurn)).toBe(
+      "2026-08-27T10:00:00.000Z",
+    );
+    expect(
+      resolveOptimisticSendStartedAt(snapshot, "env-1:thread-1", {
+        ...settledTurn,
+        turnId: TurnId.make("turn-2"),
+        state: "running",
+        startedAt: "2026-08-27T10:00:02.000Z",
+        completedAt: null,
+      }),
+    ).toBeNull();
+  });
+
+  it("drops the marker for another thread", () => {
+    expect(resolveOptimisticSendStartedAt(snapshot, "env-1:thread-2", settledTurn)).toBeNull();
+  });
+
+  it("marks the working row pending so it renders as Sending", () => {
+    const [row] = deriveThreadFeedPresentation(
+      [],
+      null,
+      new Set(),
+      new Set(),
+      "2026-08-27T10:00:00.000Z",
+      true,
+    );
+    expect(row).toEqual({
+      type: "working",
+      id: "working-indicator-row",
+      createdAt: "2026-08-27T10:00:00.000Z",
+      pending: true,
+    });
   });
 });

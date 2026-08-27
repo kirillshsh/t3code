@@ -48,6 +48,7 @@ import Animated, {
   Easing,
   FadeIn,
   FadeInUp,
+  LinearTransition,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -165,6 +166,7 @@ export interface ThreadFeedProps {
   readonly agentLabel: string;
   readonly latestTurn: ThreadFeedLatestTurn | null;
   readonly activeWorkStartedAt: string | null;
+  readonly activeWorkPending: boolean;
   readonly listRef: RefObject<LegendListRef | null>;
   readonly freeze: SharedValue<boolean>;
   readonly anchorMessageId: MessageId | null;
@@ -1007,7 +1009,7 @@ function renderFeedEntry(
   const { markdownStyles, iconSubtleColor, userBubbleColor } = props;
 
   if (entry.type === "working") {
-    return <WorkingTimelineRow startedAt={entry.createdAt} />;
+    return <WorkingTimelineRow startedAt={entry.createdAt} pending={entry.pending} />;
   }
 
   if (entry.type === "turn-fold") {
@@ -1209,42 +1211,107 @@ function formatWorkingClock(startedAt: string): string {
   return `${minutes}:${String(elapsedSeconds % 60).padStart(2, "0")}`;
 }
 
-const WorkingTimelineRow = memo(function WorkingTimelineRow(props: { readonly startedAt: string }) {
+const WorkingTimelineRow = memo(function WorkingTimelineRow(props: {
+  readonly startedAt: string;
+  /** Local send, not yet acknowledged: no turn has started, so there is nothing to clock. */
+  readonly pending: boolean;
+}) {
+  const { pending } = props;
   const [clock, setClock] = useState(() => formatWorkingClock(props.startedAt));
   const dotColor = useThemeColor("--color-icon-subtle");
 
   useEffect(() => {
+    if (pending) {
+      return;
+    }
     setClock(formatWorkingClock(props.startedAt));
     const intervalId = setInterval(() => {
       setClock(formatWorkingClock(props.startedAt));
     }, 1_000);
     return () => clearInterval(intervalId);
-  }, [props.startedAt]);
+  }, [pending, props.startedAt]);
 
   // Breathing dot: the row only exists while a turn is in flight, and the
   // animation runs on the UI thread, so it costs nothing on the JS side.
   const pulse = useSharedValue(0);
   useEffect(() => {
+    if (pending) {
+      // Solid dot while sending — the ring below carries the motion.
+      pulse.value = 1;
+      return;
+    }
     pulse.value = withRepeat(
       withTiming(1, { duration: 900, easing: Easing.inOut(Easing.quad) }),
       -1,
       true,
     );
     return () => cancelAnimation(pulse);
-  }, [pulse]);
+  }, [pending, pulse]);
   const dotStyle = useAnimatedStyle(() => ({ opacity: 0.35 + pulse.value * 0.65 }));
+
+  // One ring thrown per beat while the send is in flight: reads as "leaving the
+  // device" rather than "already working", and stops the moment the turn lands.
+  const ring = useSharedValue(0);
+  useEffect(() => {
+    if (!pending) {
+      return;
+    }
+    ring.value = 0;
+    ring.value = withRepeat(
+      withTiming(1, { duration: 1_100, easing: Easing.out(Easing.quad) }),
+      -1,
+      false,
+    );
+    return () => cancelAnimation(ring);
+  }, [pending, ring]);
+  const ringStyle = useAnimatedStyle(() => ({
+    opacity: 0.5 * (1 - ring.value),
+    transform: [{ scale: 1 + ring.value * 1.2 }],
+  }));
 
   return (
     <View className="mb-4 flex-row px-1.5">
-      <View className="flex-row items-center gap-2 rounded-full bg-subtle px-2.5 py-1">
-        <Animated.View
-          style={[dotStyle, { width: 6, height: 6, borderRadius: 3, backgroundColor: dotColor }]}
-        />
-        <Text className="font-t3-medium text-xs text-foreground-muted">Working</Text>
-        <Text className="font-t3-medium text-xs tabular-nums text-foreground-tertiary">
-          {clock}
-        </Text>
-      </View>
+      <Animated.View
+        entering={FadeIn.duration(180)}
+        layout={LinearTransition.duration(220)}
+        className="flex-row items-center gap-2 rounded-full bg-subtle px-2.5 py-1"
+      >
+        <View style={{ width: 6, height: 6 }}>
+          <Animated.View
+            style={[dotStyle, { width: 6, height: 6, borderRadius: 3, backgroundColor: dotColor }]}
+          />
+          {pending ? (
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                ringStyle,
+                {
+                  position: "absolute",
+                  top: -3,
+                  left: -3,
+                  width: 12,
+                  height: 12,
+                  borderRadius: 6,
+                  borderWidth: 1.5,
+                  borderColor: dotColor,
+                },
+              ]}
+            />
+          ) : null}
+        </View>
+        <Animated.View key={pending ? "sending" : "working"} entering={FadeIn.duration(160)}>
+          <Text className="font-t3-medium text-xs text-foreground-muted">
+            {pending ? "Sending" : "Working"}
+          </Text>
+        </Animated.View>
+        {pending ? null : (
+          <Animated.View entering={FadeIn.duration(200)}>
+            <Text className="font-t3-medium text-xs tabular-nums text-foreground-tertiary">
+              {clock}
+            </Text>
+          </Animated.View>
+        )}
+      </Animated.View>
     </View>
   );
 });
@@ -1823,10 +1890,12 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         expandedTurnIds,
         expandedWorkGroupIds,
         props.activeWorkStartedAt,
+        props.activeWorkPending,
       ),
     [
       expandedTurnIds,
       expandedWorkGroupIds,
+      props.activeWorkPending,
       props.activeWorkStartedAt,
       props.feed,
       props.latestTurn,
