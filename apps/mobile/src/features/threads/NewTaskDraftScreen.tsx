@@ -825,7 +825,7 @@ export function NewTaskDraftScreen(props: {
       singleLineCentered={false}
       contentInsetVertical={0}
       style={{
-        minHeight: 72,
+        minHeight: isAndroid ? 46 : 72,
         maxHeight: 160,
         paddingHorizontal: 4,
         paddingVertical: 4,
@@ -963,10 +963,11 @@ export function NewTaskDraftScreen(props: {
         isDarkMode={isDarkMode}
         style={{
           borderRadius: 26,
-          minHeight: 140,
+          minHeight: isAndroid ? 112 : 140,
           overflow: "hidden",
-          paddingBottom: 6,
-          paddingHorizontal: 14,
+          paddingBottom: isAndroid ? 8 : 6,
+          paddingLeft: 14,
+          paddingRight: isAndroid ? 10 : 14,
           paddingTop: 14,
         }}
       >

@@ -1,6 +1,7 @@
 import type { ComponentProps, ReactNode } from "react";
 import { useCallback, useMemo, useState } from "react";
 import {
+  Platform,
   Pressable,
   ScrollView,
   View,
@@ -54,10 +55,21 @@ export function ComposerInlineControl(props: {
       accessibilityState={
         props.static ? undefined : { disabled: props.disabled, selected: props.selected }
       }
-      className="h-11 flex-row items-center gap-2 rounded-xl px-2 active:bg-subtle"
+      className={cn(
+        "h-11 flex-row items-center gap-2",
+        // Android reads a bare label inside the composer card as unclickable
+        // chrome; the filled pill matches the icon buttons beside it.
+        Platform.OS === "android"
+          ? "rounded-full bg-subtle-strong px-3.5"
+          : "rounded-xl px-2 active:bg-subtle",
+      )}
       disabled={props.disabled || props.static}
       onPress={props.onPress}
-      style={{ maxWidth: props.maxWidth ?? 190, opacity: props.disabled ? 0.45 : 1 }}
+      style={({ pressed }) => ({
+        maxWidth: props.maxWidth ?? 190,
+        opacity: props.disabled ? 0.45 : 1,
+        transform: [{ scale: pressed && Platform.OS === "android" ? 0.93 : 1 }],
+      })}
     >
       {props.iconNode ? (
         <View className="size-4 shrink-0 items-center justify-center">{props.iconNode}</View>
@@ -216,6 +228,7 @@ export function ComposerToolbarButton(props: {
 }) {
   const { themeAppearance } = useAppearancePreferences();
   const isDarkMode = themeAppearance === "dark";
+  const isAndroid = Platform.OS === "android";
   const iconColor = useThemeColor("--color-icon");
   const iconSubtle = useThemeColor("--color-icon-subtle");
   const primaryFg = useThemeColor("--color-primary-foreground");
@@ -258,28 +271,38 @@ export function ComposerToolbarButton(props: {
             : "bg-primary"
           : variant === "danger"
             ? "bg-danger"
-            : props.active
+            : props.active || isAndroid
               ? "bg-subtle-strong"
               : "bg-subtle",
         props.className,
       )}
       style={({ pressed }) => [
-        {
-          borderColor:
-            variant === "default"
-              ? props.active
-                ? activeBorderColor
-                : defaultBorderColor
-              : filledBorderColor,
-          borderWidth: 1,
-          maxWidth: props.maxWidth,
-          minWidth: props.minWidth,
-          opacity: props.disabled ? 0.55 : pressed ? 0.72 : 1,
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: isDarkMode ? 3 : 2 },
-          shadowOpacity: props.disabled ? 0 : isDarkMode ? 0.24 : 0.08,
-          shadowRadius: isDarkMode ? 10 : 8,
-        },
+        // Android: no border, no shadow. Both were drawn on a pill that already
+        // sits inside the composer card, which read as a second surface floating
+        // on the first. The press is the scale instead of an outline.
+        isAndroid
+          ? {
+              maxWidth: props.maxWidth,
+              minWidth: props.minWidth,
+              opacity: props.disabled ? 0.55 : 1,
+              transform: [{ scale: pressed ? 0.93 : 1 }],
+            }
+          : {
+              borderColor:
+                variant === "default"
+                  ? props.active
+                    ? activeBorderColor
+                    : defaultBorderColor
+                  : filledBorderColor,
+              borderWidth: 1,
+              maxWidth: props.maxWidth,
+              minWidth: props.minWidth,
+              opacity: props.disabled ? 0.55 : pressed ? 0.72 : 1,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: isDarkMode ? 3 : 2 },
+              shadowOpacity: props.disabled ? 0 : isDarkMode ? 0.24 : 0.08,
+              shadowRadius: isDarkMode ? 10 : 8,
+            },
         props.style,
       ]}
     >

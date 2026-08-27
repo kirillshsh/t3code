@@ -87,7 +87,7 @@ export const COMPOSER_COLLAPSED_CHROME = 60;
  * Height of the expanded composer (card + toolbar + vertical padding, excluding safe-area inset).
  * Used by the parent to compute the larger feed bottom inset when the composer is focused.
  */
-export const COMPOSER_EXPANDED_CHROME = 156;
+export const COMPOSER_EXPANDED_CHROME = Platform.OS === "android" ? 130 : 156;
 
 export interface ThreadComposerProps {
   readonly draftMessage: string;
@@ -146,19 +146,25 @@ export function ComposerSurface(props: {
   /** Existing thread composers morph between pill and card layouts. */
   readonly animateLayout?: boolean;
 }) {
-  const cardColor = useThemeColor("--color-card-translucent");
+  // Android has no glass to sit on: the translucent card let the feed read
+  // straight through the composer, so it takes the opaque card colour and
+  // drops the shadow (the backdrop gradient already separates it from feed).
+  const isAndroid = Platform.OS === "android";
+  const cardColor = useThemeColor(isAndroid ? "--color-card" : "--color-card-translucent");
   const borderColor = useThemeColor("--color-border");
   const shadowColor = useThemeColor("--color-primary-shadow");
   // Drop shadow lives on a wrapper: `overflow: "hidden"` on the surface itself
   // (needed to clip content to the pill shape) would clip the shadow on iOS.
-  const shadowStyle: ViewStyle = {
-    borderRadius: props.style.borderRadius,
-    shadowColor,
-    shadowOpacity: props.isDarkMode ? 0.35 : 0.12,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 10,
-  };
+  const shadowStyle: ViewStyle = isAndroid
+    ? { borderRadius: props.style.borderRadius }
+    : {
+        borderRadius: props.style.borderRadius,
+        shadowColor,
+        shadowOpacity: props.isDarkMode ? 0.35 : 0.12,
+        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 6 },
+        elevation: 10,
+      };
 
   return (
     <Animated.View
@@ -293,7 +299,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const hasContent = props.draftMessage.trim().length > 0 || props.draftAttachments.length > 0;
   // Opening and presentation count as active so the composer stays expanded
   // while focus moves between its native editor and the settings picker.
-  const isExpanded = isFocused || settingsSheetPresentation.isActive;
+  // Android never collapses: the pill hid the toolbar behind a focus round-trip
+  // and the pill↔card morph fought the keyboard-synced slide.
+  const isExpanded = Platform.OS === "android" || isFocused || settingsSheetPresentation.isActive;
   const canSend = hasContent;
 
   // Notify the parent from the derived value, not focus events: the parent
@@ -346,7 +354,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const backdropSurface = String(useThemeColor("--color-screen"));
   const toolbarFadeOpaque = themeColorWithAlpha(toolbarSurface, 0.95);
   const toolbarFadeTransparent = themeColorWithAlpha(toolbarSurface, 0);
-  const backdropGradient = `linear-gradient(to bottom, ${themeColorWithAlpha(backdropSurface, 0)} 0%, ${themeColorWithAlpha(backdropSurface, 0.6)} 55%, ${themeColorWithAlpha(backdropSurface, 0.9)} 100%)`;
+  // Eased ramp, not three stops: a linear fade over this short a strip banded
+  // visibly at the top edge. Ends fully opaque so the composer sits on solid
+  // ground instead of a 0.9 veil the feed still shows through.
+  const backdropGradient = `linear-gradient(to bottom, ${themeColorWithAlpha(backdropSurface, 0)} 0%, ${themeColorWithAlpha(backdropSurface, 0.04)} 18%, ${themeColorWithAlpha(backdropSurface, 0.15)} 34%, ${themeColorWithAlpha(backdropSurface, 0.36)} 50%, ${themeColorWithAlpha(backdropSurface, 0.62)} 66%, ${themeColorWithAlpha(backdropSurface, 0.85)} 82%, ${themeColorWithAlpha(backdropSurface, 1)} 100%)`;
   const selectedProviderStatus = useMemo(() => {
     if (!props.serverConfig) return null;
     return (
@@ -727,6 +738,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         style={[
           StyleSheet.absoluteFill,
           {
+            // Reach above the composer: the fade needs runway, and clipped to
+            // the composer's own height it reads as a hard line at the top.
+            top: -44,
             experimental_backgroundImage: backdropGradient,
           },
         ]}
@@ -760,10 +774,13 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             isExpanded
               ? {
                   borderRadius: 26,
-                  minHeight: 140,
+                  minHeight: Platform.OS === "android" ? 112 : 140,
                   overflow: "hidden" as const,
-                  paddingBottom: 6,
-                  paddingHorizontal: 14,
+                  paddingBottom: Platform.OS === "android" ? 8 : 6,
+                  paddingLeft: 14,
+                  // Trailing send button is a circle; the tighter right inset
+                  // keeps its optical margin equal to the text's left one.
+                  paddingRight: Platform.OS === "android" ? 10 : 14,
                   paddingTop: 14,
                 }
               : {
@@ -814,7 +831,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               style={
                 isExpanded
                   ? {
-                      minHeight: 72,
+                      minHeight: Platform.OS === "android" ? 46 : 72,
                       maxHeight: 160,
                       paddingHorizontal: 4,
                       paddingVertical: 4,
@@ -887,13 +904,19 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   onPress={openSettings}
                 />
                 {showStopAction ? (
-                  <ComposerToolbarButton
-                    accessibilityLabel="Stop"
-                    icon="stop.fill"
-                    variant="danger"
-                    onPress={props.onStopThread}
-                    showChevron={false}
-                  />
+                  <Animated.View
+                    entering={FadeIn.duration(160)}
+                    exiting={FadeOut.duration(100)}
+                    layout={COMPOSER_LAYOUT_TRANSITION}
+                  >
+                    <ComposerToolbarButton
+                      accessibilityLabel="Stop"
+                      icon="stop.fill"
+                      variant="danger"
+                      onPress={props.onStopThread}
+                      showChevron={false}
+                    />
+                  </Animated.View>
                 ) : null}
               </ComposerToolbarScroller>
               <ComposerToolbarButton

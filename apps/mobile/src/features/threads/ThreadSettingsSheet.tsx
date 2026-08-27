@@ -99,9 +99,12 @@ function ModelRow(props: {
       accessibilityState={{ checked: props.selected }}
       onPress={props.onPress}
       className={cn(
-        "mx-4 min-h-11 flex-row items-center gap-2 bg-card px-4 py-2 active:bg-subtle",
-        props.isFirst && "rounded-t-2xl",
-        props.isLast ? "rounded-b-2xl" : "border-b border-border-subtle",
+        "mx-4 min-h-[52px] flex-row items-center gap-2 px-4 py-2 active:bg-subtle-strong",
+        // The checkmark alone was the only mark of the current model; a quiet
+        // fill carries it at a glance without an inverted, shouting row.
+        props.selected ? "bg-subtle-strong" : "bg-card",
+        props.isFirst && "rounded-t-[20px]",
+        props.isLast ? "rounded-b-[20px]" : "border-b border-border-subtle",
       )}
     >
       <Text className="min-w-0 shrink text-base font-t3-medium text-foreground" numberOfLines={1}>
@@ -198,14 +201,14 @@ function DisclosureRow(props: {
       accessibilityRole="button"
       onPress={props.onPress}
       className={cn(
-        "min-h-11 flex-row items-center gap-2 bg-card px-4 py-2 active:bg-subtle",
+        "min-h-[52px] flex-row items-center gap-2 bg-card px-4 py-2 active:bg-subtle-strong",
         !props.isLast && "border-b border-border-subtle",
       )}
     >
-      <Text className="text-sm font-t3-medium text-foreground">{props.label}</Text>
+      <Text className="text-base font-t3-medium text-foreground">{props.label}</Text>
       <View className="flex-1" />
       {props.value ? (
-        <Text className="text-sm text-foreground-muted" numberOfLines={1}>
+        <Text className="text-base text-foreground-muted" numberOfLines={1}>
           {props.value}
         </Text>
       ) : null}
@@ -230,7 +233,7 @@ function ChoiceRow(props: {
       accessibilityState={{ checked: props.selected }}
       onPress={props.onPress}
       className={cn(
-        "min-h-14 flex-row items-center gap-3 bg-card px-4 py-3 active:bg-subtle",
+        "min-h-[60px] flex-row items-center gap-3 bg-card px-4 py-3 active:bg-subtle-strong",
         !props.isLast && "border-b border-border-subtle",
       )}
     >
@@ -262,11 +265,11 @@ function SwitchRow(props: {
   return (
     <View
       className={cn(
-        "min-h-11 flex-row items-center justify-between bg-card px-4 py-1",
+        "min-h-[52px] flex-row items-center justify-between bg-card px-4 py-1",
         !props.isLast && "border-b border-border-subtle",
       )}
     >
-      <Text className="text-sm font-t3-medium text-foreground">{props.label}</Text>
+      <Text className="text-base font-t3-medium text-foreground">{props.label}</Text>
       <ThemedSwitch
         accessibilityLabel={props.label}
         onValueChange={props.onValueChange}
@@ -666,7 +669,7 @@ function ThreadSettingsOptionsItem(props: {
     <View style={{ paddingBottom: insets.bottom + bottomToolbarInset + 12 }}>
       <Text className="px-5 pb-2 pt-2 text-sm font-t3-medium text-foreground-muted">Options</Text>
       <Animated.View
-        className="mx-4 overflow-hidden rounded-2xl bg-card"
+        className="mx-4 overflow-hidden rounded-[20px] bg-card"
         layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}
       >
         {session.displayedDescriptors.map((descriptor) => {
@@ -720,7 +723,7 @@ function ThreadSettingsOptionsItem(props: {
           <Text className="px-5 pb-2 pt-7 text-sm font-t3-medium text-foreground-muted">
             Catalog
           </Text>
-          <View className="mx-4 overflow-hidden rounded-2xl bg-card">
+          <View className="mx-4 overflow-hidden rounded-[20px] bg-card">
             <SwitchRow
               isLast
               label="Legacy models"
@@ -901,7 +904,7 @@ function ThreadSettingsChoiceContent(props: {
       contentInsetAdjustmentBehavior="automatic"
       showsVerticalScrollIndicator={false}
     >
-      <View className="overflow-hidden rounded-2xl bg-card">
+      <View className="overflow-hidden rounded-[20px] bg-card">
         {submenuContent.rows.map((row, index) => (
           <ChoiceRow
             key={row.id}
