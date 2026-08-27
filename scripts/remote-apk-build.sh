@@ -8,6 +8,15 @@ set -uo pipefail
 
 REF="${1:-android-redesign}"
 FORCE_PREBUILD="${2:-}"
+# dev-сборка — тот же APP_VARIANT, только debug: JS не зашивается внутрь, а тянется из Metro.
+# Вариант приложения намеренно не меняем: другой package означал бы другой нативный проект,
+# полный prebuild и холодный gradle-кэш на каждом переключении dev↔release.
+DEV="${3:-}"
+if [ -n "$DEV" ]; then
+  GRADLE_TASK=assembleDebug; APK_DIR=debug; APK_NAME=app-debug.apk
+else
+  GRADLE_TASK=assembleRelease; APK_DIR=release; APK_NAME=app-release.apk
+fi
 
 export PATH="$HOME/.local/bin:$HOME/.local/usr/bin:$PATH"
 export GIT_EXEC_PATH="$HOME/.local/usr/lib/git-core"
@@ -72,6 +81,9 @@ echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 P=android/gradle.properties
 sed -i 's/^reactNativeArchitectures=.*/reactNativeArchitectures=arm64-v8a/' "$P"
 sed -i 's/^org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx10240m -XX:MaxMetaspaceSize=2048m/' "$P"
+# Свежий prebuild пишет файл без перевода строки в конце, и первый же `echo >>` склеился бы
+# с последней настройкой в одну нечитаемую строку.
+printf '\n' >> "$P"
 for kv in "org.gradle.workers.max=12" "org.gradle.caching=true" "org.gradle.parallel=true" \
           "org.gradle.daemon=true" "kotlin.incremental=true" "kotlin.daemon.jvmargs=-Xmx4096m" \
           "org.gradle.configuration-cache=true"; do
@@ -84,21 +96,23 @@ done
 sed -i "s/^\( *\)versionCode .*/\1versionCode $(( $(date +%s) / 60 ))/" android/app/build.gradle
 
 cd android
+GRADLE_ARGS="--parallel --build-cache"
 # lintVital на release съедает минуты и ничего не даёт сборке, которую просто ставят на телефон.
-GRADLE_ARGS="--parallel --build-cache -x lintVitalAnalyzeRelease -x lintVitalReportRelease"
-step "gradle assembleRelease"
+# У debug таких тасков нет, поэтому исключать нечего.
+[ -n "$DEV" ] || GRADLE_ARGS="$GRADLE_ARGS -x lintVitalAnalyzeRelease -x lintVitalReportRelease"
+step "gradle $GRADLE_TASK"
 START=$(date +%s)
-./gradlew assembleRelease $GRADLE_ARGS > "$LOGS/build.log" 2>&1
+./gradlew $GRADLE_TASK $GRADLE_ARGS > "$LOGS/build.log" 2>&1
 RC=$?
 if [ $RC -ne 0 ] && grep -qiE "cannot be found|not found in (root )?project" "$LOGS/build.log"; then
   step "lint-тасков нет в этой версии AGP, собираю без исключений"
   GRADLE_ARGS="--parallel --build-cache"
-  ./gradlew assembleRelease $GRADLE_ARGS > "$LOGS/build.log" 2>&1
+  ./gradlew $GRADLE_TASK $GRADLE_ARGS > "$LOGS/build.log" 2>&1
   RC=$?
 fi
 if [ $RC -ne 0 ] && grep -qi "configuration cache" "$LOGS/build.log"; then
   step "configuration cache подвёл, повтор без него"
-  ./gradlew assembleRelease $GRADLE_ARGS --no-configuration-cache > "$LOGS/build.log" 2>&1
+  ./gradlew $GRADLE_TASK $GRADLE_ARGS --no-configuration-cache > "$LOGS/build.log" 2>&1
   RC=$?
 fi
 if [ $RC -ne 0 ]; then
@@ -107,7 +121,7 @@ if [ $RC -ne 0 ]; then
   fail "gradle (полный лог: ~/logs/build.log)"
 fi
 
-APK="$MOBILE/android/app/build/outputs/apk/release/app-release.apk"
+APK="$MOBILE/android/app/build/outputs/apk/$APK_DIR/$APK_NAME"
 [ -f "$APK" ] || fail "APK не появился"
 
 # Отпечатки сохраняем только после успеха: упавшая сборка должна повторить свои шаги.

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Собрать Android APK на сервере `sh` и поставить на телефон.
 #   ./apk.sh                — запушить текущее состояние, собрать, скачать, установить
+#   ./apk.sh --dev          — то же, но dev-client сборка: JS тянется из Metro, ставится один раз
 #   ./apk.sh --no-install   — только собрать и скачать
 #   ./apk.sh --clean        — форсировать expo prebuild (после правок нативного конфига)
 #
@@ -15,18 +16,25 @@ REPO="/Users/kirill/t3code"
 HOST="sh"
 REMOTE_RSYNC="/home/sh/.local/usr/bin/rsync"
 REMOTE_LOG="/home/sh/logs/apk.log"
-OUT="/Users/kirill/t3code-backup/t3code-latest.apk"
-PKG="com.t3tools.t3code"
-
 INSTALL=1
 CLEAN=""
+DEVBUILD=""
 for a in "$@"; do
   case "$a" in
     --no-install) INSTALL=0 ;;
     --clean) CLEAN=1 ;;
+    --dev) DEVBUILD=1 ;;
     *) echo "неизвестный флаг: $a"; exit 1 ;;
   esac
 done
+
+# Файлы разные: rsync считает дельту против прошлой сборки того же типа, а не против чужой.
+PKG="com.t3tools.t3code"
+if [ -n "$DEVBUILD" ]; then
+  OUT="/Users/kirill/t3code-backup/t3code-dev.apk"
+else
+  OUT="/Users/kirill/t3code-backup/t3code-latest.apk"
+fi
 
 export PATH="/Users/kirill/Library/Android/sdk/platform-tools:$PATH"
 cd "$REPO" || exit 1
@@ -60,7 +68,7 @@ git push -qf fork "$SHA:refs/heads/$REF" || { echo "пуш снимка не п�
 T_BUILD=$(date +%s)
 say "сборка на $HOST ($REF)"
 scp -q "$REPO/scripts/remote-apk-build.sh" "$HOST:.t3-apk-remote.sh" || exit 1
-ssh "$HOST" "rm -f $REMOTE_LOG; setsid nohup bash ~/.t3-apk-remote.sh '$REF' '$CLEAN' > $REMOTE_LOG 2>&1 < /dev/null & disown" \
+ssh "$HOST" "rm -f $REMOTE_LOG; setsid nohup bash ~/.t3-apk-remote.sh '$REF' '$CLEAN' '$DEVBUILD' > $REMOTE_LOG 2>&1 < /dev/null & disown" \
   || { echo "не удалось запустить сборку"; exit 1; }
 
 SEEN=0
@@ -115,8 +123,14 @@ if [ "$INSTALL" = 1 ]; then
   else
     say "adb install на $DEV"
     adb -s "$DEV" install -r "$OUT" || exit 1
-    adb -s "$DEV" shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
-    say "установлено и запущено"
+    if [ -n "$DEVBUILD" ]; then
+      # dev-client идёт за бандлом на localhost:8081 телефона — reverse отдаёт туда Metro с мака.
+      adb -s "$DEV" reverse tcp:8081 tcp:8081 >/dev/null 2>&1
+      say "установлено. Metro: ./dev.sh (в отдельной вкладке), потом открой приложение"
+    else
+      adb -s "$DEV" shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
+      say "установлено и запущено"
+    fi
   fi
 fi
 
