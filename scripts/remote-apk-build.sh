@@ -99,7 +99,7 @@ cd android
 GRADLE_ARGS="--parallel --build-cache"
 # lintVital на release съедает минуты и ничего не даёт сборке, которую просто ставят на телефон.
 # У debug таких тасков нет, поэтому исключать нечего.
-[ -n "$DEV" ] || GRADLE_ARGS="$GRADLE_ARGS -x lintVitalAnalyzeRelease -x lintVitalReportRelease"
+[ -n "$DEV" ] || GRADLE_ARGS="$GRADLE_ARGS -x lintVitalAnalyzeRelease -x lintVitalReportRelease -x lintVitalRelease"
 step "gradle $GRADLE_TASK"
 START=$(date +%s)
 ./gradlew $GRADLE_TASK $GRADLE_ARGS > "$LOGS/build.log" 2>&1
